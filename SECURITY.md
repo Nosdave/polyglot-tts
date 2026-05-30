@@ -28,6 +28,27 @@ ingress).
 - It does not transmit audio or text anywhere outside the host network.
 - It does not log audio data to disk (only timing and metadata).
 
+## Hard limits in place (since 0.5.1)
+
+- The OpenAI-Speech `input` field is capped at 4000 characters. Longer
+  bodies are rejected with HTTP 400.
+- Voice uploads through `POST /v1/audio/voices` are streamed to disk
+  with a hard 50 MB cap. Larger uploads are rejected with HTTP 413.
+- Voice names sent to upload/delete endpoints are validated to forbid
+  path separators, `..`, and leading dots. Path-traversal attempts are
+  rejected with HTTP 400.
+- The container ships running as UID 10001 with `HOME=/app`. Bind
+  mounts for `voices-extra` and the HuggingFace cache must be writable
+  by UID 10001 — if you see permission errors, `chown 10001:10001` the
+  mount root.
+
+## Mounts and symlinks
+
+`voices-extra/` is read via a filesystem watcher. Do not mount this
+directory from a location writable by less-trusted users (multi-tenant
+volumes, public Samba shares) — a malicious symlink can make the
+embedder read arbitrary host files.
+
 ## What Polyglot does do that you should know about
 
 - It downloads Pocket-TTS model weights from HuggingFace on first boot.

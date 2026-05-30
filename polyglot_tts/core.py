@@ -65,6 +65,8 @@ class PolyglotCore:
         advertised_bcp47: list[str],
         voices_extra_dir: Path | None = None,
     ) -> None:
+        if not models:
+            raise ValueError("PolyglotCore requires at least one loaded model")
         self.models = models
         self.voice_states = voice_states
         self.default_voice = default_voice
@@ -76,9 +78,29 @@ class PolyglotCore:
         )
 
         # Mutex guarding voice_states. File-watcher writes (add/remove),
-        # endpoints read. Threading.Lock (sync) because watchdog runs in a
-        # thread, not the asyncio loop.
+        # endpoints read + on-demand-write. threading.RLock works from both
+        # the watcher thread AND from asyncio paths via asyncio.to_thread.
         self._voice_lock = threading.RLock()
+
+        # Per-model serialization lock. Pocket-TTS mutates per-model state
+        # (pad_with_spaces_for_short_inputs) during generation and is not
+        # thread-safe. Both endpoints (Wyoming + HTTP) acquire this BEFORE
+        # calling model.generate_audio_stream. threading.Lock because the
+        # HTTP path runs synthesis in asyncio.to_thread; the Wyoming path
+        # has its own asyncio.Lock layer (legacy) but acquires this one
+        # too when it offloads to an executor.
+        self._model_locks: dict[int, threading.Lock] = {}
+        self._model_locks_guard = threading.Lock()
+
+    def get_model_lock(self, model) -> threading.Lock:
+        """Return the shared sync-lock for this model. Safe from any thread."""
+        key = id(model)
+        with self._model_locks_guard:
+            lock = self._model_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._model_locks[key] = lock
+        return lock
 
     # ── Voice-state access ────────────────────────────────────────────────
 
@@ -96,6 +118,15 @@ class PolyglotCore:
             self.voice_states[voice_name] = per_lang_state
         _LOGGER.info("Voice registered: %s (%d language(s))",
                      voice_name, len(per_lang_state))
+
+    def set_voice_state(self, voice_name: str, checkpoint: str, state) -> None:
+        """Atomically attach a single per-language state to a voice.
+
+        Used by the HTTP and Wyoming on-demand-encode paths so they don't
+        mutate `voice_states` directly under an unguarded lock.
+        """
+        with self._voice_lock:
+            self.voice_states.setdefault(voice_name, {})[checkpoint] = state
 
     def remove_voice(self, voice_name: str) -> bool:
         """Drop a voice from the registry. Returns True if it existed."""

@@ -69,6 +69,6 @@ clone a voice from a native sample in that language.
 | Symptom | Likely cause |
 |---|---|
 | Voice list empty in HA | Container still loading models; wait for "Warmup complete" in logs |
-| Audio cuts off mid-word | This is the streaming-cancel bug in HA `dev` ([issue link](https://github.com/home-assistant/core)); unrelated to Polyglot |
-| Wrong language synthesized | Language hint not sent by HA + text too short for LID; lower `POCKET_TTS_MIN_LID_CHARS` or pass the language hint explicitly via the API |
+| Audio cuts off mid-word | Likely the upstream HA streaming-cancel behavior; unrelated to Polyglot. File against [home-assistant/core](https://github.com/home-assistant/core/issues) with a repro if persistent. |
+| Wrong language synthesized | Language hint not sent by HA + text too short for LID (under 20 chars); pass the language hint explicitly via the API, or pre-tag your intent_script responses with a `language` slot |
 | First synthesis very slow | Cold-start CUDA kernel JIT; subsequent calls warm. Set `POCKET_TTS_WARMUP=true` (default) |

@@ -12,7 +12,7 @@
 - 🏠 **Wyoming endpoint** — plug-and-play with [Home Assistant](https://www.home-assistant.io/voice_control/) Voice-Pipeline and Voice-PE.
 - 🤖 **OpenAI-Speech-compatible HTTP** — works out of the box with [OpenClaw](https://openclaw.ai/), LangChain, custom scripts, and anything else that speaks the OpenAI Speech API.
 - 🎙️ **Voice cloning via drop-file** — copy a 10–30 s WAV into `voices-extra/` and the voice is available in *every* loaded language within ~30 s. No restart, no config edit.
-- 🚀 **GPU-accelerated** — production-tested on NVIDIA Blackwell (DGX Spark, 33–38× real-time). CUDA 12 + 13 supported. Auto-detect at startup.
+- 🚀 **GPU-accelerated** — production-tested on NVIDIA Blackwell (33–38× real-time). CUDA 12 supported by the published `:cuda` image; CUDA 13 / ARM64-GPU users build from source (see [docs/PERFORMANCE.md](docs/PERFORMANCE.md)). Auto-detect at startup.
 - 🥧 **Runs small too** — Pi 5 reaches real-time for a single language. HA Green (ARM64) and ordinary x86 boxes work.
 - 🗣️ **26 built-in voices** plus unlimited user clones (Kyutai's voice library).
 - 🔢 **Text normalization built in** — numbers, dates, currencies, units, and abbreviations spoken naturally in the target language.

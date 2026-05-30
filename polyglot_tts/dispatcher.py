@@ -190,9 +190,15 @@ async def run() -> None:
     from . import __version__
     _LOGGER.info("Polyglot TTS v%s starting", __version__)
 
+    # POCKET_TTS_LANGUAGES is the canonical key. POCKET_TTS_LANGUAGE (singular)
+    # is the back-compat fallback for users migrating from araa47's fork —
+    # see docs/MIGRATION_FROM_ARAA47.md.
     languages_env = os.environ.get(
         "POCKET_TTS_LANGUAGES",
-        "english_2026-04,german_24l,french_24l",
+        os.environ.get(
+            "POCKET_TTS_LANGUAGE",
+            "english_2026-04,german_24l,french_24l",
+        ),
     )
     checkpoints = [s.strip() for s in languages_env.split(",") if s.strip()]
     default_voice = os.environ.get("POCKET_TTS_VOICE", "eve")
@@ -205,8 +211,9 @@ async def run() -> None:
     wyoming_port = _int_env("POCKET_TTS_WYOMING_PORT", 10200)
     http_port = _int_env("POCKET_TTS_HTTP_PORT", 10201)
 
-    if os.environ.get("HF_TOKEN"):
-        _LOGGER.info("HuggingFace token detected in env")
+    # Don't log token presence — the value never appears here, but log lines
+    # mentioning HF_TOKEN sometimes get scraped by log-aggregators that then
+    # alert on the literal string. Silent is safer.
 
     # 1) Load models
     models = _load_models(checkpoints, device)
@@ -241,7 +248,7 @@ async def run() -> None:
 
     # 6) Start timing side-channel
     if timing_port is not None:
-        start_timing_server(host="0.0.0.0", port=timing_port)
+        start_timing_server(host=host, port=timing_port)
 
     # 7) Start file-watcher
     observer = start_watcher(core, voices_extra_dir)

@@ -91,11 +91,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin/polyglot-tts /usr/local/bin/
 
-WORKDIR /app
+# Run as a non-root user (UID 10001). Owners of mounted volumes (voices-extra,
+# hf-cache) must allow read+write to UID 10001 — see docs/CONFIGURATION.md.
+RUN useradd --system --uid 10001 --shell /usr/sbin/nologin --home-dir /app polyglot \
+    && mkdir -p /app/voices /app/voices-extra /app/.cache \
+    && chown -R polyglot:polyglot /app
 
-# Provide both voice dirs as anchors. voices/ is reserved for shipped customs
-# (empty today), voices-extra/ is the host-mount drop-zone for user voices.
-RUN mkdir -p /app/voices /app/voices-extra
+ENV HOME=/app \
+    HF_HOME=/app/.cache/huggingface
+
+WORKDIR /app
+USER polyglot
 
 # Ports:
 #   10200 — Wyoming protocol (Home Assistant, Rhasspy)

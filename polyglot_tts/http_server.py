@@ -64,16 +64,29 @@ _LOGGER = logging.getLogger(__name__)
 # Request / response models
 # ─────────────────────────────────────────────────────────────────────────
 
+MAX_INPUT_CHARS = 4000        # cap synth input — prevents GPU/CPU DoS
+MAX_VOICE_UPLOAD_BYTES = 50 * 1024 * 1024   # 50 MB hard cap for voice uploads
+
+
 class SpeechRequest(BaseModel):
     model: str = Field(default="polyglot-1")
-    input: str
+    input: str = Field(..., max_length=MAX_INPUT_CHARS)
     voice: str | None = None
     response_format: str = Field(default="mp3")
-    speed: float = Field(default=1.0, ge=0.25, le=4.0)
     # Polyglot-specific extension: explicit language hint
     language: str | None = None
-    # OpenAI fields we accept but currently ignore
+    # OpenAI fields we accept but currently ignore (kept for client compat)
+    speed: float | None = None
     instructions: str | None = None
+
+
+# Voice-name validation: allow [A-Za-z0-9_-.] only, no leading dot, no ".."
+_VOICE_NAME_OK = lambda s: (
+    bool(s)
+    and not s.startswith(".")
+    and ".." not in s
+    and all(c.isalnum() or c in "_-." for c in s)
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -110,7 +123,14 @@ def _resolve_checkpoint(core: PolyglotCore, lang_hint: str | None,
 
 def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
                     lang_hint: str | None) -> tuple[np.ndarray, str]:
-    """Run model inference end-to-end, return (float32 mono samples @ 24kHz, lang)."""
+    """Run model inference end-to-end, return (float32 mono samples @ 24kHz, lang).
+
+    Acquires the shared per-model lock around `generate_audio_stream` so two
+    concurrent HTTP synth requests (or HTTP + Wyoming via its own offload)
+    don't corrupt pocket-tts's per-model mutable state (Issue tracked in
+    pocket-tts:tts_model.py:547-548 — `pad_with_spaces_for_short_inputs` is
+    explicitly NOT thread-safe).
+    """
     bcp47, ckpt = _resolve_checkpoint(core, lang_hint, text)
     model = core.models[ckpt]
     state = core.get_voice_state(voice, ckpt)
@@ -120,13 +140,19 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
                      voice, ckpt, core.default_voice)
         state = core.get_voice_state(core.default_voice, ckpt)
         if state is None:
-            # Last-ditch: encode the preset voice on the fly
+            # Last-ditch: encode the preset voice on the fly. Guard with
+            # try/except — pocket-tts raises on unknown preset names rather
+            # than returning None, and we want a 404 not a 500.
             from .core import ALL_PRESET_VOICES
             if voice in ALL_PRESET_VOICES:
                 _LOGGER.info("On-demand encode of preset %s", voice)
-                state = model.get_state_for_audio_prompt(voice)
+                try:
+                    state = model.get_state_for_audio_prompt(voice)
+                except Exception as e:
+                    _LOGGER.warning("On-demand encode of %r failed: %s", voice, e)
+                    state = None
                 if state is not None:
-                    core.voice_states.setdefault(voice, {})[ckpt] = state
+                    core.set_voice_state(voice, ckpt, state)
             if state is None:
                 raise HTTPException(404, f"Voice '{voice}' not available")
 
@@ -136,10 +162,12 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
 
     t0 = time.perf_counter()
     pcm_chunks: list[np.ndarray] = []
-    for frame in model.generate_audio_stream(state, text_norm):
-        if hasattr(frame, "cpu"):
-            frame = frame.cpu().numpy()
-        pcm_chunks.append(np.asarray(frame, dtype=np.float32).reshape(-1))
+    model_lock = core.get_model_lock(model)
+    with model_lock:
+        for frame in model.generate_audio_stream(state, text_norm):
+            if hasattr(frame, "cpu"):
+                frame = frame.cpu().numpy()
+            pcm_chunks.append(np.asarray(frame, dtype=np.float32).reshape(-1))
     pcm = np.concatenate(pcm_chunks) if pcm_chunks else np.zeros(0, dtype=np.float32)
     synth_ms = int((time.perf_counter() - t0) * 1000)
     audio_ms = int(len(pcm) / SAMPLE_RATE * 1000)
@@ -240,15 +268,47 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
             if not stem:
                 raise HTTPException(400, "No voice name provided")
             name = stem
-        # Basic name validation: alnum + _ + -
-        if not all(c.isalnum() or c in "_-." for c in name):
+        # Strict name validation: no path-traversal, no leading dot.
+        if not _VOICE_NAME_OK(name):
             raise HTTPException(400, "Invalid voice name "
-                                     "(allowed: A-Z, a-z, 0-9, _, -, .)")
-        # Persist under voices-extra/<name>.<ext>; watcher will embed.
+                                     "(allowed: A-Z, a-z, 0-9, _, -, .; "
+                                     "no leading dot; no '..')")
+        # Stream upload to disk with a hard size cap. Doesn't buffer the
+        # whole payload in RAM — protects 4 GB hosts (HA Green / Pi).
         suffix = Path(file.filename or ".wav").suffix.lower() or ".wav"
         target = voices_extra_dir / f"{name}{suffix}"
-        contents = await file.read()
-        target.write_bytes(contents)
+        # Resolve final path is under voices-extra (belt-and-braces vs symlinks)
+        try:
+            resolved = target.resolve()
+            voices_extra_resolved = voices_extra_dir.resolve()
+            resolved.relative_to(voices_extra_resolved)
+        except (ValueError, OSError):
+            raise HTTPException(400, "Resolved path escapes voices-extra/")
+
+        total = 0
+        CHUNK = 1024 * 1024
+        try:
+            with open(target, "wb") as fh:
+                while True:
+                    data = await file.read(CHUNK)
+                    if not data:
+                        break
+                    total += len(data)
+                    if total > MAX_VOICE_UPLOAD_BYTES:
+                        fh.close()
+                        target.unlink(missing_ok=True)
+                        raise HTTPException(
+                            413,
+                            f"Voice file too large "
+                            f"(max {MAX_VOICE_UPLOAD_BYTES // (1024*1024)} MB)",
+                        )
+                    fh.write(data)
+        except HTTPException:
+            raise
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise HTTPException(500, "Upload failed")
+
         return {"name": name, "path": str(target),
                 "status": "queued — embedding will start in <2s"}
 
@@ -256,12 +316,22 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
     async def delete_voice(name: str) -> Response:
         if voices_extra_dir is None:
             raise HTTPException(503, "Voice management is disabled")
+        # Same strict validation as upload — block path-traversal.
+        if not _VOICE_NAME_OK(name):
+            raise HTTPException(400, "Invalid voice name")
         # Remove from registry immediately
         core.remove_voice(name)
-        # Delete source file(s) if present — watcher will also catch this
-        for suffix in (".wav", ".mp3", ".flac", ".m4a", ".ogg"):
+        # Delete source file(s) if present — watcher will also catch this.
+        # Iterate over AUDIO_EXT for consistency with the upload path.
+        from .voice_loader import AUDIO_EXT
+        for suffix in AUDIO_EXT:
             p = voices_extra_dir / f"{name}{suffix}"
             if p.exists():
+                # Final safety: don't unlink a symlink that points outside.
+                try:
+                    p.resolve().relative_to(voices_extra_dir.resolve())
+                except (ValueError, OSError):
+                    continue
                 p.unlink()
         return Response(status_code=204)
 
@@ -277,7 +347,8 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
             raise
         except Exception as e:
             _LOGGER.exception("Synthesis failed: %s", e)
-            raise HTTPException(500, f"Synthesis failed: {e}") from e
+            # Don't leak internal exception detail to clients.
+            raise HTTPException(500, "Synthesis failed") from e
         audio_bytes, content_type = _encode_audio(pcm, req.response_format)
         return Response(
             content=audio_bytes,

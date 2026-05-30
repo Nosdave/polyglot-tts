@@ -32,8 +32,8 @@ dependencies = [
     "lingua-language-detector>=2.0.0",
     "num2words>=0.5.14",
     "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.27.0",
-    "python-multipart>=0.0.9",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.18",
     "watchdog>=4.0.0",
 ]
 

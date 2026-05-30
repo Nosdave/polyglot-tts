@@ -13,7 +13,7 @@ This software builds upon and would not exist without:
 Kyutai Pocket TTS  —  https://github.com/kyutai-labs/pocket-tts
 ----------------------------------------------------------------------
 The TTS engine, decoder (Mimi), transformer (FlowLM), language
-checkpoints, and 28 pre-made voice embeddings shipped with this
+checkpoints, and 26 pre-made voice embeddings shipped with this
 project are the work of Kyutai (https://kyutai.org).
 
   Code:    MIT License

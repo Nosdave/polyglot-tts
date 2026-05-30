@@ -54,7 +54,7 @@ which checkpoint to use per request.
 | `POCKET_TTS_WARMUP` | `true` | Run a short synthesis per loaded language at startup to warm up JIT-compiled CUDA kernels and worker threads. |
 | `POCKET_TTS_TEXT_NORM` | `true` | Apply Markdown-strip, unit-expansion, number-to-words before synthesis. |
 | `POCKET_TTS_AUTO_LID` | `true` | Enable Lingua-based per-sentence language detection. |
-| `POCKET_TTS_LAZY_LOAD` | `false` | (Experimental) Load missing language models on first request. Increases first-call latency by 10–30 s for new languages. |
+| `POCKET_TTS_LAZY_LOAD` | `false` | **Declared but not yet implemented** — slated for 0.6.0. Today: all languages listed in `POCKET_TTS_LANGUAGES` are loaded eagerly at startup. |
 | `POCKET_TTS_MIN_SYNTH_CHARS` | `30` | First-flush threshold for streaming. Lower = faster first audio at the cost of less natural prosody. |
 | `POCKET_TTS_LOG_LEVEL` | `INFO` | Standard Python log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 
