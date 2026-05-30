@@ -14,7 +14,7 @@
 - 🎙️ **Voice cloning via drop-file** — copy a 10–30 s WAV into `voices-extra/` and the voice is available in *every* loaded language within ~30 s. No restart, no config edit.
 - 🚀 **GPU-accelerated** — production-tested on NVIDIA Blackwell (DGX Spark, 33–38× real-time). CUDA 12 + 13 supported. Auto-detect at startup.
 - 🥧 **Runs small too** — Pi 5 reaches real-time for a single language. HA Green (ARM64) and ordinary x86 boxes work.
-- 🗣️ **28 built-in voices** plus unlimited user clones (Kyutai's voice library).
+- 🗣️ **26 built-in voices** plus unlimited user clones (Kyutai's voice library).
 - 🔢 **Text normalization built in** — numbers, dates, currencies, units, and abbreviations spoken naturally in the target language.
 - 🎚️ **Mukser-Fix** — fade-in + tail-padding eliminate click artifacts between streaming chunks.
 - 🧱 **Sentence-buffering** — synthesizer gets complete sentences instead of token fragments, producing natural prosody.

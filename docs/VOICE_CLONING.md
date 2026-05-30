@@ -78,7 +78,7 @@ finishes (typically within 30 seconds).
   sample speaking French will keep an English vowel coloring. For best
   results in a specific language, clone from a native-language sample of
   that voice — if you have one.
-- **Built-in voices.** All 28 Kyutai-shipped voices are available by name
+- **Built-in voices.** All 26 Kyutai-shipped voices are available by name
   without any extra work. See `GET /v1/audio/voices` for the full list.
 - **Long samples don't help.** Beyond 30 seconds, the encoder doesn't gain
   meaningful additional voice characteristics. Quality of those 30 seconds
