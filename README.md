@@ -61,7 +61,7 @@ curl -X POST http://localhost:10201/v1/audio/speech \
 | You want to … | Use this endpoint | See |
 |---|---|---|
 | Talk through your Home Assistant Voice-PE | Wyoming `:10200` | [docs/INTEGRATIONS/HOME_ASSISTANT.md](docs/INTEGRATIONS/HOME_ASSISTANT.md) |
-| Wire it up to OpenClaw / Volt | OpenAI-Speech `:10201` | [docs/INTEGRATIONS/OPENCLAW.md](docs/INTEGRATIONS/OPENCLAW.md) |
+| Wire it up to OpenClaw | OpenAI-Speech `:10201` | [docs/INTEGRATIONS/OPENCLAW.md](docs/INTEGRATIONS/OPENCLAW.md) |
 | Drop in to LangChain / custom scripts | OpenAI-Speech `:10201` | OpenAI Python SDK with `base_url=` override |
 | Clone your own voice | drop a WAV in `voices-extra/` | [docs/VOICE_CLONING.md](docs/VOICE_CLONING.md) |
 | Tune performance / device | environment variables | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
