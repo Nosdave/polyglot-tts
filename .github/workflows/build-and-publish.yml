@@ -86,8 +86,6 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          flavor: |
-            suffix=-cuda
           tags: |
             type=raw,value=cuda,enable={{is_default_branch}}
             type=semver,pattern={{version}}-cuda
