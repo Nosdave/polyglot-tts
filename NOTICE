@@ -1,0 +1,46 @@
+Polyglot TTS
+============
+
+Multi-language, streaming-capable text-to-speech server with voice cloning,
+exposing Wyoming and OpenAI-Speech-compatible HTTP endpoints.
+
+Copyright (c) 2026 Nosdave
+Licensed under the MIT License — see LICENSE.
+
+This software builds upon and would not exist without:
+
+----------------------------------------------------------------------
+Kyutai Pocket TTS  —  https://github.com/kyutai-labs/pocket-tts
+----------------------------------------------------------------------
+The TTS engine, decoder (Mimi), transformer (FlowLM), language
+checkpoints, and 28 pre-made voice embeddings shipped with this
+project are the work of Kyutai (https://kyutai.org).
+
+  Code:    MIT License
+  Models:  CC-BY 4.0 (attribution required)
+
+When you redistribute Polyglot TTS or build on top of it, you must
+preserve the Kyutai attribution for the model weights.
+
+----------------------------------------------------------------------
+araa47 / wyoming_pocket_tts  —  https://github.com/araa47/wyoming_pocket_tts
+----------------------------------------------------------------------
+The original Wyoming-protocol wrapper around Kyutai Pocket TTS was
+written by araa47, licensed under MIT. Polyglot TTS forks from this
+work and adds:
+
+  - Multi-language same-voice loading
+  - Lingua-based automatic Language ID
+  - Sentence-buffering for HA-aware streaming
+  - num2words-driven text normalization (de/en/fr)
+  - Mukser-Fix (fade-in + tail-padding to suppress chunk-boundary clicks)
+  - CUDA support across amd64 + arm64 (Blackwell)
+  - OpenAI-Speech-compatible HTTP endpoint
+  - File-watcher voice-cloning workflow
+  - REST API for voice management
+
+----------------------------------------------------------------------
+Lingua  —  https://github.com/pemistahl/lingua-py  (Apache 2.0)
+num2words  —  https://github.com/savoirfairelinux/num2words  (LGPL)
+Wyoming  —  https://github.com/rhasspy/wyoming  (MIT)
+----------------------------------------------------------------------

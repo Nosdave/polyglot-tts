@@ -1,0 +1,75 @@
+# Polyglot TTS — minimal example compose file.
+#
+# Copy this to docker-compose.yaml and edit. Or write your own.
+#
+# Three named profiles are configured:
+#   --profile cpu      → uses the CPU multi-arch image (HA Green, Pi 5, x86)
+#   --profile cuda     → uses the CUDA image (any NVIDIA host)
+#   --profile minimal  → CPU + English only, smallest footprint
+#
+# Run with:
+#   docker compose --profile cuda up -d
+
+services:
+
+  # CPU build — multi-arch (linux/amd64, linux/arm64).
+  # Real-Time Factor depends heavily on hardware — see docs/PERFORMANCE.md.
+  polyglot-tts-cpu:
+    image: ghcr.io/nosdave/polyglot-tts:latest
+    profiles: ["cpu"]
+    container_name: polyglot-tts
+    restart: unless-stopped
+    ports:
+      - "10200:10200"   # Wyoming (HA / Rhasspy)
+      - "10201:10201"   # OpenAI-Speech HTTP (OpenClaw, scripts, ...)
+      - "10299:10299"   # Side-channel timing endpoint (optional)
+    environment:
+      POCKET_TTS_LANGUAGES: "english_2026-04,german_24l,french_24l"
+      POCKET_TTS_VOICE: "eve"
+    volumes:
+      - ./voices-extra:/app/voices-extra
+      - polyglot-hf-cache:/root/.cache/huggingface
+
+  # CUDA build — requires NVIDIA-Container-Toolkit on the host.
+  polyglot-tts-cuda:
+    image: ghcr.io/nosdave/polyglot-tts:cuda
+    profiles: ["cuda"]
+    container_name: polyglot-tts
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "10200:10200"
+      - "10201:10201"
+      - "10299:10299"
+    environment:
+      POCKET_TTS_LANGUAGES: "english_2026-04,german_24l,french_24l"
+      POCKET_TTS_VOICE: "eve"
+      POCKET_TTS_DEVICE: "cuda"
+    volumes:
+      - ./voices-extra:/app/voices-extra
+      - polyglot-hf-cache:/root/.cache/huggingface
+
+  # Minimal — single language, CPU, smallest RAM footprint.
+  polyglot-tts-minimal:
+    image: ghcr.io/nosdave/polyglot-tts:latest
+    profiles: ["minimal"]
+    container_name: polyglot-tts
+    restart: unless-stopped
+    ports:
+      - "10201:10201"   # HTTP only, no Wyoming
+    environment:
+      POCKET_TTS_LANGUAGES: "english_2026-04"
+      POCKET_TTS_VOICE: "eve"
+      POCKET_TTS_WYOMING_PORT: ""   # disable Wyoming
+    volumes:
+      - ./voices-extra:/app/voices-extra
+      - polyglot-hf-cache:/root/.cache/huggingface
+
+volumes:
+  polyglot-hf-cache:

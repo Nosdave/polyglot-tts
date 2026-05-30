@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Voices — user-provided, NEVER commit
+voices-extra/*
+!voices-extra/.gitkeep
+!voices-extra/README.md
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+*.embedding
+*.wav.error
+
+# Secrets
+.env
+.env.local
+*.local
+.hf_token
+.secrets/
+secrets.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build artifacts
+*.log
+.cache/
+.coverage
+htmlcov/
+
+# Docker
+docker-compose.override.yaml
+docker-compose.private.yaml
+docker-compose.*.local.yaml
