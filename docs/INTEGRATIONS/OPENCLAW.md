@@ -28,30 +28,36 @@ it, but it must be non-empty.
 Edit your OpenClaw configuration (typically `~/.openclaw/openclaw.json` or
 `/config/.openclaw/openclaw.json` when running as a Home Assistant add-on):
 
-```json
+```json5
 {
   "messages": {
     "tts": {
       "auto": "always",
       "provider": "openai",
-      "openai": {
-        "apiKey": "dummy",
-        "baseUrl": "http://polyglot-tts:10201/v1",
-        "model": "polyglot-1",
-        "speakerVoice": "eve"
+      "providers": {
+        "openai": {
+          "apiKey": "${OPENAI_API_KEY}",
+          "baseUrl": "http://polyglot-tts:10201/v1",
+          "model": "polyglot-1",
+          "speakerVoice": "eve"
+        }
       }
     }
   }
 }
 ```
 
+`auto` accepts: `"always"` (every reply → audio), `"off"`, `"inbound"`
+(audio only after voice messages), or `"tagged"` (audio only with
+`[[tts:...]]` directives in the reply text).
+
 Restart OpenClaw to pick up the change.
 
 > **Heads-up — known OpenClaw bug** [openclaw/openclaw #57506](https://github.com/openclaw/openclaw/issues/57506):
-> in some recent OpenClaw builds the `messages.tts.openai.baseUrl` key is
-> ignored and the TTS tool falls back to Edge TTS. If Variant B doesn't
-> appear to take effect, switch to Variant A — the env-var path doesn't
-> go through that code branch.
+> in some recent OpenClaw builds the `messages.tts.providers.openai.baseUrl`
+> key is ignored and the TTS tool falls back to Edge TTS. If Variant B
+> doesn't appear to take effect, switch to Variant A — the env-var path
+> doesn't go through that code branch.
 
 ## Test the route end-to-end
 
