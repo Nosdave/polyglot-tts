@@ -95,6 +95,16 @@ See [docs/VOICE_CLONING.md](docs/VOICE_CLONING.md) for tips on recording quality
 
 ---
 
+## Companion project
+
+For multi-language Tier-1 voice intents in Home Assistant — the *input*
+side of the voice pipeline — see
+[**Polyglot Assist**](https://github.com/Nosdave/hass-polyglot-assist).
+A custom HA conversation agent that does deterministic Hassil matching
+across multiple languages with LLM fallback proxy, solving HA's
+single-language sentence-trigger limit. Pairs naturally with Polyglot
+TTS on the output side.
+
 ## Why fork
 
 This project builds on [araa47/wyoming_pocket_tts](https://github.com/araa47/wyoming_pocket_tts), which added the Wyoming protocol layer on top of [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts). Polyglot TTS adds:
