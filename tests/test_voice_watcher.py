@@ -76,3 +76,23 @@ def test_ensure_decodable_m4a_requires_ffmpeg(tmp_path: Path, monkeypatch) -> No
     p.write_bytes(b"\x00")
     with pytest.raises(RuntimeError, match="ffmpeg"):
         ensure_decodable(p)
+
+
+def test_failure_tracking_skips_unchanged_file(tmp_path: Path) -> None:
+    import os
+    import time as _time
+
+    core = _FakeCore()
+    handler = _VoiceFolderHandler(core, tmp_path)
+    p = tmp_path / "broken.wav"
+    p.write_bytes(b"\x00")
+
+    # Not yet failed.
+    assert handler._already_failed_unchanged(p) is False
+    # Record a failure → subsequent unchanged check skips it (no retry storm).
+    handler._record_failure(p)
+    assert handler._already_failed_unchanged(p) is True
+    # Replacing the file (new mtime) clears the skip — it gets a fresh try.
+    _time.sleep(0.01)
+    os.utime(p, None)
+    assert handler._already_failed_unchanged(p) is False

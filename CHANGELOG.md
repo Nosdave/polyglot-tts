@@ -2,6 +2,27 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [0.5.5] — 2026-05-31
+
+Hardens the voice file-watcher against bad input.
+
+### Fixed
+
+- **No more retry-storm on a broken / non-voice file.** A file that
+  fails to embed (corrupt audio, a non-audio file renamed to `.wav`,
+  etc.) is now remembered by path+mtime and skipped on subsequent
+  watcher events, instead of being re-attempted on every filesystem
+  event. Replacing the file (new mtime) clears the skip and retries.
+- **Oversized files are rejected up front.** Files over 100 MB in
+  `voices-extra/` are rejected with a clear `.error` sidecar before any
+  CPU/GPU work — guards against accidentally dropping a movie or disk
+  image into the voice folder.
+
+### Changed
+
+- Embedding failures now log at WARNING (not full stack traces) and
+  write a clearer sidecar message.
+
 ## [0.5.4] — 2026-05-31
 
 More fixes from the live Spark voice-cloning test — both directly affect

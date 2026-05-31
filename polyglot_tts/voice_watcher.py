@@ -30,6 +30,10 @@ _LOGGER = logging.getLogger(__name__)
 
 WAIT_STABLE_SECONDS = 2.0
 POLL_INTERVAL_SECONDS = 0.5
+# Reject absurdly large drops before doing any work. A voice sample is
+# seconds of speech — anything over this is almost certainly a mistake
+# (someone dropped a movie / disk image into voices-extra by accident).
+MAX_VOICE_FILE_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 def _is_audio_file(path: Path) -> bool:
@@ -80,6 +84,24 @@ def _clear_error_sidecar(audio_path: Path) -> None:
 def _embed_one(audio_path: Path, core) -> bool:
     """Embed one voice file. Returns True if a voice was registered."""
     name = audio_path.stem
+
+    # Size sanity check — reject obvious mistakes (a non-voice file dumped
+    # into voices-extra) before spending CPU/GPU on it.
+    try:
+        size = audio_path.stat().st_size
+    except OSError:
+        return False
+    if size > MAX_VOICE_FILE_BYTES:
+        _LOGGER.warning("Voice file too large (%d bytes, max %d): %s",
+                        size, MAX_VOICE_FILE_BYTES, audio_path.name)
+        _write_error_sidecar(
+            audio_path,
+            f"File is {size // (1024*1024)} MB — too large for a voice sample "
+            f"(max {MAX_VOICE_FILE_BYTES // (1024*1024)} MB). "
+            "A voice sample is 10-30 seconds of speech."
+        )
+        return False
+
     if not _wait_for_stable(audio_path):
         _LOGGER.warning("Voice file did not stabilize: %s", audio_path)
         _write_error_sidecar(audio_path, "File did not stabilize within 30s")
@@ -92,15 +114,16 @@ def _embed_one(audio_path: Path, core) -> bool:
         # a temp wav via ffmpeg before encoding.
         per_lang = encode_voice_file(audio_path, core)
     except Exception as e:
-        _LOGGER.exception("Voice embedding crashed: %s", e)
-        _write_error_sidecar(audio_path, f"Embedding crashed: {e}")
+        _LOGGER.warning("Voice embedding failed for %s: %s", audio_path.name, e)
+        _write_error_sidecar(audio_path, f"Could not process file: {e}")
         return False
 
     if not per_lang:
         _write_error_sidecar(
             audio_path,
             "Embedding failed against every loaded language model. "
-            "Possible causes: too short, too noisy, multiple speakers."
+            "Possible causes: not actually audio, too short, too noisy, "
+            "or multiple speakers."
         )
         return False
 
@@ -125,9 +148,37 @@ class _VoiceFolderHandler(FileSystemEventHandler):
         # that was registered from davidneu.wav).
         self._voice_source: dict[str, str] = {}
         self._source_lock = threading.Lock()
+        # path -> mtime of the last attempt that FAILED. A file that already
+        # failed and hasn't changed since is skipped — no retry-storm when a
+        # genuinely broken / non-voice file sits in the folder. Cleared when
+        # the file's mtime changes (user replaced it) or on success.
+        self._failed: dict[str, float] = {}
+
+    def _already_failed_unchanged(self, path: Path) -> bool:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return False
+        with self._source_lock:
+            return self._failed.get(str(path)) == mtime
+
+    def _record_failure(self, path: Path) -> None:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return
+        with self._source_lock:
+            self._failed[str(path)] = mtime
+
+    def _clear_failure(self, path: Path) -> None:
+        with self._source_lock:
+            self._failed.pop(str(path), None)
 
     def _maybe_process_create(self, path: Path) -> None:
         if not _is_audio_file(path):
+            return
+        # Skip a file that already failed and hasn't changed since.
+        if self._already_failed_unchanged(path):
             return
         # De-dup: same path event can fire twice (create + modify)
         with self._processing_lock:
@@ -138,6 +189,9 @@ class _VoiceFolderHandler(FileSystemEventHandler):
             if _embed_one(path, self.core):
                 with self._source_lock:
                     self._voice_source[path.stem] = str(path)
+                self._clear_failure(path)
+            else:
+                self._record_failure(path)
         finally:
             with self._processing_lock:
                 self._processing.discard(str(path))
@@ -176,6 +230,8 @@ class _VoiceFolderHandler(FileSystemEventHandler):
     def _remove_if_source(self, path: Path) -> None:
         """Drop the voice only if THIS path was the one that registered it."""
         name = path.stem
+        # Whatever happens, stop tracking this path as a known failure.
+        self._clear_failure(path)
         with self._source_lock:
             source = self._voice_source.get(name)
             if source != str(path):
