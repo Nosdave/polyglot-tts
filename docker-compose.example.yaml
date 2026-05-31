@@ -30,7 +30,10 @@ services:
       - ./voices-extra:/app/voices-extra
       - polyglot-hf-cache:/root/.cache/huggingface
 
-  # CUDA build — requires NVIDIA-Container-Toolkit on the host.
+  # CUDA build — multi-arch (linux/amd64 + linux/arm64), so this same
+  # image works on amd64 NVIDIA workstations AND on NVIDIA DGX Spark
+  # (Grace + GB10) AND on Jetson Orin/AGX. Requires NVIDIA Container
+  # Toolkit on the host.
   polyglot-tts-cuda:
     image: ghcr.io/nosdave/polyglot-tts:cuda
     profiles: ["cuda"]

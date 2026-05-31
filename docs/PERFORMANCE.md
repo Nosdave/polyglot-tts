@@ -4,7 +4,7 @@
 
 | Hardware | Mode | RTF (production-verified) | Notes |
 |---|---|---|---|
-| NVIDIA DGX Spark (Grace + Blackwell, CUDA 13) | DE/EN/FR multi-lang | 33–38× | Author's reference deployment. Local build — see [docs/SPARK_BUILD.md](SPARK_BUILD.md). |
+| NVIDIA DGX Spark (Grace + Blackwell, CUDA 13) | DE/EN/FR multi-lang | 33–38× | Author's reference deployment. `docker pull :cuda` works directly — multi-arch image. |
 | Consumer NVIDIA GPU (RTX 3060+, CUDA 12) | Single-lang | 20–40× | Most workstation GPUs. |
 | MacBook Air M4 (CPU only) | Single-lang | ~6× | Kyutai's own published benchmark. |
 | Intel/AMD Mid-Range x86 CPU | Single-lang | ~3–4× | N100-class, ~3.4 GHz boost. |

@@ -1,11 +1,14 @@
 # Building for DGX Spark, Jetson, and other ARM64 + NVIDIA hosts
 
-The published `:cuda` image is `linux/amd64` only. For ARM64 hosts with
-NVIDIA GPUs — NVIDIA DGX Spark (Grace + Blackwell GB10), Jetson Orin/AGX,
-Ampere ARM workstations — you build a local image directly on the host.
-
-This isn't a workaround for a missing feature; it's faster and more
-reliable than emulated cross-builds on GitHub-hosted CI runners.
+> **You probably don't need this page.** The published
+> `ghcr.io/nosdave/polyglot-tts:cuda` image is multi-arch
+> (`linux/amd64` + `linux/arm64`) — `docker pull` it on Spark or Jetson
+> like you would on an amd64 host. The CI builds the arm64 variant
+> natively on GitHub-hosted `ubuntu-24.04-arm` runners since v0.5.2.
+>
+> This page covers the **local build** workflow: useful if you want a
+> custom `PYTORCH_INDEX`, if you're working offline, or if you're
+> debugging the image and want to iterate without a CI roundtrip.
 
 ## Prerequisites
 
@@ -104,23 +107,20 @@ mkdir -p ./voices-extra
 sudo chown -R 10001:10001 ./voices-extra
 ```
 
-## Why CI doesn't ship an ARM64 CUDA image
+## Why this used to be required (and isn't anymore)
 
-GitHub-hosted CI runners are amd64. Building `linux/arm64` images on
-amd64 needs QEMU emulation, which:
+Through v0.5.1, the public `:cuda` image was amd64-only and ARM+CUDA
+users had to build locally. GitHub-hosted CI runners were all amd64,
+and cross-building `linux/arm64` images via QEMU was slow (30–60 min)
+and timed out on multi-GB PyTorch wheel downloads.
 
-- Slows the build from ~5 min to 30–60 min, and
-- Frequently times out during multi-GB PyTorch wheel downloads.
+In August 2025, GitHub added native `ubuntu-24.04-arm` runners — free
+for public repositories, real ARM64 hardware (Neoverse N2), no QEMU.
+The CI workflow now builds the arm64 variant natively on those runners
+in ~10–15 minutes, and stitches it together with the amd64 variant into
+a single multi-arch `:cuda` manifest.
 
-A native build on the actual ARM+CUDA target completes in 10–15 minutes
-with no flakiness — so for the small population of users on ARM64+CUDA
-hosts (Spark, Jetson), a local build is the right answer.
-
-If you're maintaining a fleet and want a pull-able image, push the
-locally-built image to your own registry (GHCR, Docker Hub, internal
-Harbor, etc.):
-
-```bash
-docker tag polyglot-tts:cuda-local ghcr.io/<your-org>/polyglot-tts:0.5.1-cuda-arm64
-docker push ghcr.io/<your-org>/polyglot-tts:0.5.1-cuda-arm64
-```
+So `docker pull ghcr.io/nosdave/polyglot-tts:cuda` Just Works on
+Spark / Jetson / amd64 alike. The local-build workflow above is purely
+for special cases (custom build args, offline iteration, your own
+registry).

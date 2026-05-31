@@ -12,18 +12,42 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+# The build runs once per (variant, arch) combination, then a per-variant
+# merge job stitches the per-arch digests into a multi-arch manifest list.
+# Native runners only — `ubuntu-24.04-arm` has been GA for public repos
+# since 2025-08, so no QEMU emulation anywhere. PyTorch's aarch64 cu128
+# wheels are installed at image-build time; no GPU is needed on the build
+# host because the CUDA driver only matters at runtime.
+
 jobs:
-  build-cpu:
-    name: Build CPU image (linux/amd64 + linux/arm64)
-    runs-on: ubuntu-latest
+  build-arch:
+    name: Build ${{ matrix.variant }}/${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: cpu
+            arch: amd64
+            runner: ubuntu-24.04
+            pytorch_index: cpu
+          - variant: cpu
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            pytorch_index: cpu
+          - variant: cuda
+            arch: amd64
+            runner: ubuntu-24.04
+            pytorch_index: cu128
+          - variant: cuda
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            pytorch_index: cu128
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU (multi-arch)
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -36,52 +60,109 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build metadata
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            PYTORCH_INDEX=${{ matrix.pytorch_index }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          cache-from: type=gha,scope=${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}-${{ matrix.arch }}
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.variant }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  merge-cpu:
+    name: Merge CPU multi-arch manifest
+    if: github.event_name != 'pull_request'
+    needs: build-arch
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download all CPU digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-cpu-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute CPU tags
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push (CPU)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            PYTORCH_INDEX=cpu
-          cache-from: type=gha,scope=cpu
-          cache-to: type=gha,mode=max,scope=cpu
+      - name: Create multi-arch CPU manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
-  build-cuda:
-    name: Build CUDA image (linux/amd64)
-    runs-on: ubuntu-latest
+      - name: Inspect resulting CPU manifest
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+
+  merge-cuda:
+    name: Merge CUDA multi-arch manifest
+    if: github.event_name != 'pull_request'
+    needs: build-arch
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Download all CUDA digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-cuda-*
+          path: /tmp/digests
+          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build metadata
+      - name: Compute CUDA tags
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -91,23 +172,14 @@ jobs:
             type=semver,pattern={{version}}-cuda
             type=semver,pattern={{major}}.{{minor}}-cuda
 
-      - name: Build and push (CUDA)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            PYTORCH_INDEX=cu128
-          cache-from: type=gha,scope=cuda
-          cache-to: type=gha,mode=max,scope=cuda
+      - name: Create multi-arch CUDA manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
-  # NOTE: linux/arm64+CUDA (DGX Spark, Jetson) is intentionally NOT built
-  # in CI. PyTorch's cu128 wheels ship ARM64 binaries that run fine on
-  # CUDA-13 hosts via driver back-compat, BUT QEMU-emulated arm64 builds
-  # on amd64 runners are slow (30-60 min) and flaky on multi-GB wheel
-  # downloads. A native build on the actual ARM+CUDA target takes 10-15
-  # min and is reliable. See docs/SPARK_BUILD.md for the user-facing
-  # workflow and scripts/build-spark.sh for a one-liner wrapper.
+      - name: Inspect resulting CUDA manifest
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cuda || \
+            docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}-cuda

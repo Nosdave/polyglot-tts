@@ -12,7 +12,7 @@
 - 🏠 **Wyoming endpoint** — plug-and-play with [Home Assistant](https://www.home-assistant.io/voice_control/) Voice-Pipeline and Voice-PE.
 - 🤖 **OpenAI-Speech-compatible HTTP** — works out of the box with [OpenClaw](https://openclaw.ai/), LangChain, custom scripts, and anything else that speaks the OpenAI Speech API.
 - 🎙️ **Voice cloning via drop-file** — copy a 10–30 s WAV into `voices-extra/` and the voice is available in *every* loaded language within ~30 s. No restart, no config edit.
-- 🚀 **GPU-accelerated** — production-tested on NVIDIA Blackwell (33–38× real-time). CUDA 12 supported by the published `:cuda` image (amd64). ARM64 + NVIDIA GPU users (DGX Spark, Jetson) build a local image in 10–15 min — see [docs/SPARK_BUILD.md](docs/SPARK_BUILD.md). Auto-detect at startup.
+- 🚀 **GPU-accelerated** — production-tested on NVIDIA Blackwell (33–38× real-time). The published `:cuda` image is multi-arch (linux/amd64 + linux/arm64), so NVIDIA DGX Spark (Grace + GB10), Jetson Orin/AGX, and ordinary amd64 NVIDIA hosts all `docker pull` the same tag. Auto-detect CUDA vs CPU at startup.
 - 🥧 **Runs small too** — Pi 5 reaches real-time for a single language. HA Green (ARM64) and ordinary x86 boxes work.
 - 🗣️ **26 built-in voices** plus unlimited user clones (Kyutai's voice library).
 - 🔢 **Text normalization built in** — numbers, dates, currencies, units, and abbreviations spoken naturally in the target language.
@@ -66,7 +66,7 @@ curl -X POST http://localhost:10201/v1/audio/speech \
 | Clone your own voice | drop a WAV in `voices-extra/` | [docs/VOICE_CLONING.md](docs/VOICE_CLONING.md) |
 | Tune performance / device | environment variables | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
 | Migrate from araa47's fork | rename a few env vars | [docs/MIGRATION_FROM_ARAA47.md](docs/MIGRATION_FROM_ARAA47.md) |
-| Run on DGX Spark / Jetson / ARM64 + NVIDIA | local build (10–15 min) | [docs/SPARK_BUILD.md](docs/SPARK_BUILD.md) |
+| Run on DGX Spark / Jetson / ARM64 + NVIDIA | `docker pull ghcr.io/nosdave/polyglot-tts:cuda` | the same `:cuda` tag covers amd64 + arm64 — [docs/SPARK_BUILD.md](docs/SPARK_BUILD.md) if you want to build locally |
 
 ---
 

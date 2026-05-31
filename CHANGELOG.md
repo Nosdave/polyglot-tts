@@ -2,6 +2,37 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [0.5.2] — 2026-05-31
+
+### Changed
+
+- CI now builds `linux/arm64` variants of both `:latest` (CPU) and
+  `:cuda` natively on GitHub-hosted `ubuntu-24.04-arm` runners. The
+  `:cuda` tag is now a multi-arch manifest covering `linux/amd64` +
+  `linux/arm64` — NVIDIA DGX Spark (Grace + GB10), Jetson Orin/AGX,
+  and amd64 NVIDIA hosts all `docker pull ghcr.io/nosdave/polyglot-tts:cuda`
+  to get the right image automatically.
+- Workflow uses the digest-based multi-platform pattern (per-arch
+  build → merge by manifest list) so each arch builds on its native
+  runner — no QEMU, no self-hosted Spark dependency, no manual push.
+
+### Docs
+
+- `docs/SPARK_BUILD.md` recast as "local-build for special cases"
+  rather than "Spark users must do this". Default path is the
+  multi-arch `:cuda` image.
+- README's GPU bullet and use-cases table updated to reflect Spark /
+  Jetson as first-class targets covered by the published image.
+- `docker-compose.example.yaml` adds an explicit comment confirming
+  the `:cuda` profile works on Spark/Jetson.
+
+### Why the cleanup matters
+
+Through v0.5.1, ARM64+CUDA users were directed to a local-build flow.
+GitHub-hosted ARM64 runners went GA for public repos in August 2025,
+making that constraint unnecessary. Multi-arch `:cuda` distribution is
+now standard for the public image lineup.
+
 ## [0.5.1] — 2026-05-31
 
 Post-launch hardening pass driven by an independent multi-agent code +
