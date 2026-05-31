@@ -83,6 +83,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libportaudio2 \
     libsndfile1 \
+    ffmpeg \
     netcat-openbsd \
     curl \
     && rm -rf /var/lib/apt/lists/* \

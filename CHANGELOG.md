@@ -2,6 +2,30 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [0.5.4] — 2026-05-31
+
+More fixes from the live Spark voice-cloning test — both directly affect
+the "drop a file, get a voice" UX.
+
+### Fixed
+
+- **m4a / aac / opus voice samples now work.** libsndfile can't decode
+  m4a (AAC), so iPhone voice memos — the most common casual recording —
+  failed with "Format not recognised". The image now bundles `ffmpeg`,
+  and non-native formats are transcoded to a temp 24 kHz mono WAV before
+  encoding. `.wav/.flac/.ogg/.mp3` still load natively (no transcode).
+- **Deleting a same-stem file no longer drops an unrelated voice.** The
+  watcher tracked voices by file *stem*, so deleting `davidneu.m4a`
+  removed the voice that had been registered from `davidneu.wav`. The
+  watcher now records which exact source file produced each voice and
+  only removes the voice when *that* file is deleted.
+
+### Added
+
+- Unit tests for the watcher's path→voice tracking and the audio-format
+  passthrough helper (`tests/test_voice_watcher.py`).
+- `.aac` and `.opus` added to the accepted upload extensions.
+
 ## [0.5.3] — 2026-05-31
 
 First real-hardware deployment (NVIDIA DGX Spark, GB10) surfaced two bugs

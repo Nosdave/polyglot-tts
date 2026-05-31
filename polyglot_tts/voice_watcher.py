@@ -24,7 +24,7 @@ from pathlib import Path
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from .voice_loader import AUDIO_EXT
+from .voice_loader import AUDIO_EXT, encode_voice_file
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,35 +77,39 @@ def _clear_error_sidecar(audio_path: Path) -> None:
         pass
 
 
-def _embed_one(audio_path: Path, core) -> None:
+def _embed_one(audio_path: Path, core) -> bool:
+    """Embed one voice file. Returns True if a voice was registered."""
     name = audio_path.stem
     if not _wait_for_stable(audio_path):
         _LOGGER.warning("Voice file did not stabilize: %s", audio_path)
         _write_error_sidecar(audio_path, "File did not stabilize within 30s")
-        return
+        return False
 
     _LOGGER.info("Embedding voice '%s' from %s ...", name, audio_path.name)
     t0 = time.time()
     try:
-        per_lang = core.encode_voice(audio_path)
+        # encode_voice_file transcodes non-native formats (m4a/aac/...) to
+        # a temp wav via ffmpeg before encoding.
+        per_lang = encode_voice_file(audio_path, core)
     except Exception as e:
         _LOGGER.exception("Voice embedding crashed: %s", e)
         _write_error_sidecar(audio_path, f"Embedding crashed: {e}")
-        return
+        return False
 
     if not per_lang:
         _write_error_sidecar(
             audio_path,
             "Embedding failed against every loaded language model. "
-            "Possible causes: too short, too noisy, wrong codec, multiple speakers."
+            "Possible causes: too short, too noisy, multiple speakers."
         )
-        return
+        return False
 
     core.add_voice(name, per_lang)
     _clear_error_sidecar(audio_path)
     dt_ms = int((time.time() - t0) * 1000)
     _LOGGER.info("Voice '%s' ready in %d language(s) (%d ms)",
                  name, len(per_lang), dt_ms)
+    return True
 
 
 class _VoiceFolderHandler(FileSystemEventHandler):
@@ -115,6 +119,12 @@ class _VoiceFolderHandler(FileSystemEventHandler):
         self.voices_dir = voices_dir
         self._processing: set[str] = set()
         self._processing_lock = threading.Lock()
+        # voice_name -> source file path that produced it. Lets on_deleted
+        # avoid removing a voice when an UNRELATED file sharing the same
+        # stem is deleted (e.g. delete davidneu.m4a must not drop the voice
+        # that was registered from davidneu.wav).
+        self._voice_source: dict[str, str] = {}
+        self._source_lock = threading.Lock()
 
     def _maybe_process_create(self, path: Path) -> None:
         if not _is_audio_file(path):
@@ -125,7 +135,9 @@ class _VoiceFolderHandler(FileSystemEventHandler):
                 return
             self._processing.add(str(path))
         try:
-            _embed_one(path, self.core)
+            if _embed_one(path, self.core):
+                with self._source_lock:
+                    self._voice_source[path.stem] = str(path)
         finally:
             with self._processing_lock:
                 self._processing.discard(str(path))
@@ -161,15 +173,26 @@ class _VoiceFolderHandler(FileSystemEventHandler):
             name=f"reembed-{path.name}",
         ).start()
 
+    def _remove_if_source(self, path: Path) -> None:
+        """Drop the voice only if THIS path was the one that registered it."""
+        name = path.stem
+        with self._source_lock:
+            source = self._voice_source.get(name)
+            if source != str(path):
+                # A different file (or none) produced the current voice —
+                # deleting this path must not remove it.
+                return
+            self._voice_source.pop(name, None)
+        if self.core.remove_voice(name):
+            _clear_error_sidecar(path)
+
     def on_deleted(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
         path = Path(event.src_path)
-        if not path.suffix.lower() in AUDIO_EXT:
+        if path.suffix.lower() not in AUDIO_EXT:
             return
-        name = path.stem
-        if self.core.remove_voice(name):
-            _clear_error_sidecar(path)
+        self._remove_if_source(path)
 
     def on_moved(self, event: FileSystemEvent) -> None:
         # Treat move as delete + create
@@ -178,7 +201,7 @@ class _VoiceFolderHandler(FileSystemEventHandler):
         old = Path(event.src_path)
         new = Path(event.dest_path)
         if old.suffix.lower() in AUDIO_EXT:
-            self.core.remove_voice(old.stem)
+            self._remove_if_source(old)
         if _is_audio_file(new):
             threading.Thread(
                 target=self._maybe_process_create,

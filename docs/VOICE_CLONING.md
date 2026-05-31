@@ -41,10 +41,10 @@ That's the whole flow. No restart, no config edit.
 | Length | 10 to 30 seconds of speech (silence trimmed) |
 | Speakers | exactly one |
 | Background noise | minimal (no music, traffic, fan hum) |
-| Microphone | anything decent; phone voice memo works fine |
+| Microphone | anything decent; a phone voice memo works fine |
 | Sample rate | any (server resamples to 24 kHz internally) |
 | Channels | mono or stereo (server downmixes) |
-| Format | `.wav`, `.mp3`, `.flac`, `.m4a`, `.ogg` |
+| Format | `.wav`, `.mp3`, `.flac`, `.ogg` natively; `.m4a`, `.aac`, `.opus` transcoded via the bundled ffmpeg — so **iPhone voice memos (.m4a) work directly** |
 | Language | any — but a native-language sample tends to give better prosody in that language |
 
 ## Errors
