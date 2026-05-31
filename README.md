@@ -66,7 +66,8 @@ curl -X POST http://localhost:10201/v1/audio/speech \
 | Clone your own voice | drop a WAV in `voices-extra/` | [docs/VOICE_CLONING.md](docs/VOICE_CLONING.md) |
 | Tune performance / device | environment variables | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
 | Migrate from araa47's fork | rename a few env vars | [docs/MIGRATION_FROM_ARAA47.md](docs/MIGRATION_FROM_ARAA47.md) |
-| Run on DGX Spark / Jetson / ARM64 + NVIDIA | `docker pull ghcr.io/nosdave/polyglot-tts:cuda` | the same `:cuda` tag covers amd64 + arm64 — [docs/SPARK_BUILD.md](docs/SPARK_BUILD.md) if you want to build locally |
+| Run on DGX Spark / Jetson / ARM64 + NVIDIA | `docker pull ghcr.io/nosdave/polyglot-tts:cuda` | multi-arch; for native sm_121 speed on driver ≥ 580 use `:cuda13` — [docs/CUDA.md](docs/CUDA.md) |
+| Pick the right CUDA image (`:cuda` vs `:cuda13`) | depends on GPU + driver | [docs/CUDA.md](docs/CUDA.md) |
 
 ---
 
@@ -131,6 +132,13 @@ Code: MIT — see [LICENSE](LICENSE).
 Models: CC-BY 4.0 — Kyutai's models retain their original licence (attribution required).
 
 ---
+
+## For contributors / maintainers
+
+[docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) is a cold-start handover:
+architecture, the image-tag matrix, the concurrency model, measured
+performance, CI gotchas, and the open backlog. Read it before making
+non-trivial changes.
 
 ## Contributing & support
 

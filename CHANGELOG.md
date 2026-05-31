@@ -2,6 +2,26 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [0.5.6] — 2026-05-31
+
+### Added
+
+- **New `:cuda13` image variant** built with PyTorch cu130 (CUDA 13).
+  Native sm_120/sm_121 kernels for RTX 50xx and NVIDIA DGX Spark (GB10)
+  — no JIT fallback. Requires NVIDIA driver ≥ 580 and a Turing-or-newer
+  GPU (Pascal/Volta/Maxwell were dropped in CUDA 13).
+- `docs/CUDA.md` — guide for choosing between `:latest`, `:cuda`, and
+  `:cuda13`.
+
+### Notes
+
+- `:cuda` stays on cu128 (CUDA 12.8) as the broad-compatibility default —
+  driver ≥ 525, Turing→Blackwell, doesn't break older GPUs/drivers.
+  Moving the single tag to cu130 would silently break Pascal/Volta users
+  and pinned-driver (Proxmox/ESXi) hosts. This mirrors what PyTorch,
+  vLLM, and ComfyUI do.
+- Addresses [issue #1](https://github.com/Nosdave/polyglot-tts/issues/1).
+
 ## [0.5.5] — 2026-05-31
 
 Hardens the voice file-watcher against bad input.
@@ -36,8 +56,8 @@ the "drop a file, get a voice" UX.
   and non-native formats are transcoded to a temp 24 kHz mono WAV before
   encoding. `.wav/.flac/.ogg/.mp3` still load natively (no transcode).
 - **Deleting a same-stem file no longer drops an unrelated voice.** The
-  watcher tracked voices by file *stem*, so deleting `davidneu.m4a`
-  removed the voice that had been registered from `davidneu.wav`. The
+  watcher tracked voices by file *stem*, so deleting `myvoice.m4a`
+  removed the voice that had been registered from `myvoice.wav`. The
   watcher now records which exact source file produced each voice and
   only removes the voice when *that* file is deleted.
 

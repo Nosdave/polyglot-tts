@@ -42,6 +42,19 @@ jobs:
             arch: arm64
             runner: ubuntu-24.04-arm
             pytorch_index: cu128
+          # cu130 / CUDA 13 variant. Native sm_120/sm_121 (RTX 50xx, DGX
+          # Spark GB10) — no JIT fallback. REQUIRES NVIDIA driver >= 580 and
+          # Turing-or-newer (Pascal/Volta/Maxwell were dropped in CUDA 13).
+          # Published as the separate :cuda13 tag; :cuda stays cu128 for
+          # broad compatibility. See docs/CUDA.md.
+          - variant: cuda13
+            arch: amd64
+            runner: ubuntu-24.04
+            pytorch_index: cu130
+          - variant: cuda13
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            pytorch_index: cu130
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -192,3 +205,54 @@ jobs:
         run: |
           docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cuda || \
             docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}-cuda
+
+  merge-cuda13:
+    name: Merge CUDA13 multi-arch manifest
+    if: github.event_name != 'pull_request'
+    needs: build-arch
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download all CUDA13 digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-cuda13-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute CUDA13 tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=cuda13,enable={{is_default_branch}}
+            type=semver,pattern={{version}}-cuda13
+            type=semver,pattern={{major}}.{{minor}}-cuda13
+
+      - name: Create multi-arch CUDA13 manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Inspect resulting CUDA13 manifest
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cuda13 || \
+            docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}-cuda13

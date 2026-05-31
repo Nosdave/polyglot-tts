@@ -144,8 +144,8 @@ class _VoiceFolderHandler(FileSystemEventHandler):
         self._processing_lock = threading.Lock()
         # voice_name -> source file path that produced it. Lets on_deleted
         # avoid removing a voice when an UNRELATED file sharing the same
-        # stem is deleted (e.g. delete davidneu.m4a must not drop the voice
-        # that was registered from davidneu.wav).
+        # stem is deleted (e.g. delete myvoice.m4a must not drop the voice
+        # that was registered from myvoice.wav).
         self._voice_source: dict[str, str] = {}
         self._source_lock = threading.Lock()
         # path -> mtime of the last attempt that FAILED. A file that already

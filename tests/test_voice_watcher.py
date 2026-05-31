@@ -2,8 +2,8 @@
 audio-format passthrough helper. These cover the two bugs found during the
 first real Spark deployment:
 
-  1. Deleting davidneu.m4a wrongly removed the voice registered from
-     davidneu.wav (stem collision in on_deleted).
+  1. Deleting myvoice.m4a wrongly removed the voice registered from
+     myvoice.wav (stem collision in on_deleted).
   2. m4a files were accepted by the watcher but failed to decode.
 """
 
@@ -38,18 +38,18 @@ def test_delete_unrelated_stem_keeps_voice(tmp_path: Path) -> None:
     core = _FakeCore()
     handler = _VoiceFolderHandler(core, tmp_path)
 
-    # davidneu.wav registered the voice
-    core.add_voice("davidneu", {"de": "state"})
-    handler._voice_source["davidneu"] = str(tmp_path / "davidneu.wav")
+    # myvoice.wav registered the voice
+    core.add_voice("myvoice", {"de": "state"})
+    handler._voice_source["myvoice"] = str(tmp_path / "myvoice.wav")
 
-    # Deleting davidneu.m4a (a DIFFERENT file with the same stem) must NOT
-    # drop the voice that came from davidneu.wav.
-    handler._remove_if_source(tmp_path / "davidneu.m4a")
-    assert "davidneu" in core.voices
+    # Deleting myvoice.m4a (a DIFFERENT file with the same stem) must NOT
+    # drop the voice that came from myvoice.wav.
+    handler._remove_if_source(tmp_path / "myvoice.m4a")
+    assert "myvoice" in core.voices
 
     # Deleting the actual source file does remove it.
-    handler._remove_if_source(tmp_path / "davidneu.wav")
-    assert "davidneu" not in core.voices
+    handler._remove_if_source(tmp_path / "myvoice.wav")
+    assert "myvoice" not in core.voices
 
 
 def test_delete_untracked_voice_is_noop(tmp_path: Path) -> None:

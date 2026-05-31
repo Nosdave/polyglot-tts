@@ -1,12 +1,20 @@
 # Polyglot TTS — multi-language streaming TTS server with voice cloning.
 #
-# Two image variants are built from this Dockerfile via build-arg PYTORCH_INDEX:
-#   - CPU (default)  : ghcr.io/nosdave/polyglot-tts:latest  (linux/amd64 + linux/arm64)
-#   - CUDA           : ghcr.io/nosdave/polyglot-tts:cuda    (linux/amd64 + linux/arm64-cuda13)
+# One Dockerfile, three published image variants selected via build-arg
+# PYTORCH_INDEX (see .github/workflows/build-and-publish.yml and docs/CUDA.md):
+#   - :latest  PYTORCH_INDEX=cpu     CPU only,  linux/amd64 + linux/arm64
+#   - :cuda    PYTORCH_INDEX=cu128   CUDA 12.8, linux/amd64 + linux/arm64
+#              Broad compatibility (driver >= 525, Turing→Blackwell). On
+#              Blackwell sm_121 (DGX Spark GB10) it works but uses a JIT
+#              fallback (no native sm_121 kernels) → ~5x RTF.
+#   - :cuda13  PYTORCH_INDEX=cu130   CUDA 13,   linux/amd64 + linux/arm64
+#              Native sm_120/sm_121 (RTX 50xx, DGX Spark). REQUIRES driver
+#              >= 580 and Turing-or-newer; Pascal/Volta/Maxwell dropped.
 #
 # Build locally:
-#   docker build -t polyglot-tts:local .
-#   docker build --build-arg PYTORCH_INDEX=cu128 -t polyglot-tts:cuda-local .
+#   docker build -t polyglot-tts:local .                              # CPU
+#   docker build --build-arg PYTORCH_INDEX=cu128 -t polyglot-tts:cuda .
+#   docker build --build-arg PYTORCH_INDEX=cu130 -t polyglot-tts:cuda13 .
 
 ARG PYTORCH_INDEX=cpu
 
