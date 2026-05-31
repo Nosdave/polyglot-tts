@@ -12,7 +12,8 @@ on one of these and measure, please open a PR with real numbers.
 
 | Hardware | Mode | RTF | Source |
 |---|---|---|---|
-| NVIDIA DGX Spark (Grace + Blackwell GB10, sm_121, CUDA 13) | DE single-lang, GPU | **~5×** | **Measured** (cu128 build; see note below) |
+| NVIDIA DGX Spark (Grace + Blackwell GB10, sm_121) | DE single-lang, GPU, `:cuda` (cu128) | **~5.6×** | **Measured** |
+| NVIDIA DGX Spark (same) | DE single-lang, GPU, `:cuda13` (cu130, native sm_121) | **~5.4×** | **Measured** — native kernels did *not* beat cu128 (see note) |
 | DGX Spark CPU **(under heavy load)** | DE single-lang | **~0.24×** | **Measured** (box was saturated by other workloads — not representative of an idle CPU) |
 | MacBook Air M4 (CPU only) | Single-lang | ~6× | Kyutai's published benchmark |
 | Consumer NVIDIA GPU (RTX 3060+, CUDA 12) | Single-lang | ~20–40× (estimate) | Unverified |
@@ -23,10 +24,17 @@ on one of these and measure, please open a PR with real numbers.
 ### Note on Blackwell GB10 (DGX Spark) RTF
 
 The measured ~5× on Spark is **lower than you'd expect from a Blackwell
-GPU**. The `:cuda` image is built against PyTorch cu128, whose bundled
-nvrtc does not natively know sm_121 (GB10), so kernels fall back to
-runtime-JIT/Triton paths. Native sm_121 kernels (via a cu130 build) should
-lift this — tracked in
+GPU**, and — surprisingly — **native sm_121 kernels (cu130 / `:cuda13`)
+do not fix it.** Both were benchmarked: cu128 ~5.6× and cu130 ~5.4× sit in
+the same band. cu130's only measured advantage is a faster cold start
+(warmup ~520 ms vs ~1490 ms — no first-call JIT compile).
+
+So the ~5× ceiling is **not** a kernel-architecture problem. It's bound by
+the **autoregressive decode** (each audio frame depends on the previous —
+inherently sequential), **device-to-host transfer** of every frame, and
+framework/worker-thread overhead. The real levers are halving the D2H
+transfer (emit int16 from the GPU instead of float32) and fusing the
+decoder with `torch.compile` — tracked in
 [issue #1](https://github.com/Nosdave/polyglot-tts/issues/1). ~5× is still
 comfortably faster than real-time, so streaming voice has no lag today.
 

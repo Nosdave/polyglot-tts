@@ -160,11 +160,15 @@ Earlier docs claimed 33–38× real-time on Blackwell. That was **never
 reproduced** and has been corrected. Direct measurement on an NVIDIA
 Blackwell GB10 (both this image and the upstream production image):
 
-- **GPU, cu128 (`:cuda`): ~5× real-time.** sm_121 isn't native in cu128,
+- **GPU, cu128 (`:cuda`): ~5.6× real-time.** sm_121 isn't native in cu128,
   so kernels JIT-fall-back. Still faster than real-time → no streaming lag.
+- **GPU, cu130 (`:cuda13`): ~5.4× real-time.** Native sm_121, **but no
+  steady-state speedup over cu128** — benchmarked, same band. Only win is
+  a ~3× faster cold-start warmup (no first-call JIT). The ~5× ceiling is
+  bound by the autoregressive decode + D2H transfer + framework overhead,
+  not kernel architecture. So the real levers are the D2H + torch.compile
+  work (see backlog), not the CUDA version.
 - **CPU on a saturated host: ~0.24×** (not representative of an idle CPU).
-- **`:cuda13` (cu130) is expected to beat 5×** via native sm_121 — **not
-  yet benchmarked**. That's the headline open task (see below and issue #1).
 
 `docs/PERFORMANCE.md` marks which table rows are measured vs estimated.
 Only the GB10 and M4 rows are real; the rest are rough estimates.

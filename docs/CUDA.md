@@ -41,10 +41,17 @@ All three are multi-arch (`linux/amd64` + `linux/arm64`).
 - **GPU support:** Turing (sm_75) through Blackwell. **Maxwell, Pascal,
   and Volta were dropped in CUDA 13** — a GTX 1080 / Tesla V100 cannot
   run this image.
-- **On Blackwell sm_120/sm_121:** native kernels, no JIT fallback. This
-  is the image to use for full DGX Spark / RTX 50xx performance.
-- **Tracking:** see [issue #1](https://github.com/Nosdave/polyglot-tts/issues/1)
-  for the RTF comparison work.
+- **On Blackwell sm_120/sm_121:** native kernels, no JIT fallback at boot.
+- **Does it run faster?** Measured on a DGX Spark GB10: **cu130 does *not*
+  improve steady-state synthesis throughput** over cu128 — both sit at
+  ~5× real-time. The only measured win is a faster **cold start** (model
+  warmup ~520 ms vs ~1490 ms, because there's no first-call JIT compile).
+  The ~5× ceiling is bound by the autoregressive decode + device-to-host
+  transfer + framework overhead, not by kernel architecture. See
+  [issue #1](https://github.com/Nosdave/polyglot-tts/issues/1).
+- **So which do I pick?** If you're on a Turing+ GPU with driver ≥ 580 and
+  want the faster boot / native kernels / newest stack, use `:cuda13`.
+  Otherwise `:cuda` is the safer default and performs the same per request.
 
 ## How to check your driver and GPU
 

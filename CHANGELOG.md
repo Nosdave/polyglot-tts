@@ -2,6 +2,29 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [0.5.7] — 2026-05-31
+
+### Docs
+
+- **`:cuda13` benchmark results, honestly.** Measured cu128 vs cu130 on a
+  DGX Spark GB10: native sm_121 (cu130) does **not** improve steady-state
+  RTF (~5.4× vs ~5.6×) — only the cold-start warmup is faster (~520 ms vs
+  ~1490 ms). The ~5× ceiling is bound by the autoregressive decode +
+  device-to-host transfer + framework overhead, not kernel architecture.
+  CUDA.md / PERFORMANCE.md / PROJECT_STATE.md updated to say so plainly.
+- `:cuda13` is kept (faster boot, native kernels, future-proof for the
+  decode-path optimizations) but is **not** advertised as faster per
+  request.
+- The real performance levers are now the headline backlog items: GPU-side
+  int16 conversion to halve D2H transfer, and `torch.compile` on the Mimi
+  decoder. See [issue #1](https://github.com/Nosdave/polyglot-tts/issues/1).
+
+### Verified live (DGX Spark, v0.5.6 image)
+
+- ffmpeg auto-transcode: an iPhone-style `.m4a` dropped directly into
+  `voices-extra/` clones without manual conversion. (The v0.5.4 fix,
+  confirmed on real hardware.)
+
 ## [0.5.6] — 2026-05-31
 
 ### Added
