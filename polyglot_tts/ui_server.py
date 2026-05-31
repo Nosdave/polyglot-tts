@@ -1,0 +1,134 @@
+"""Web UI: dashboard, voice management, and settings.
+
+Mounted onto the existing FastAPI app (the OpenAI-Speech HTTP endpoint).
+Serves a static single-page UI at `/ui` and a small `/api/ui/*` surface
+the page talks to. Reuses the existing /v1/audio/* endpoints for voice
+list/upload/delete and test-synthesis.
+
+Auth: if POCKET_TTS_UI_TOKEN is set, the UI page and all /api/ui/* calls
+require it (sent as `X-UI-Token` header or `?token=` query). When unset,
+the UI is open (LAN-only, matching the rest of the server's default).
+
+Restart: POST /api/ui/restart exits the process; with a Docker restart
+policy (unless-stopped / always) the container comes back and re-reads the
+settings file. Documented in docs/WEB_UI.md.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import threading
+import time
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
+from . import __version__
+from . import config_store
+from .core import LANGUAGE_TO_BCP47, PolyglotCore
+from .timing_server import get_timing
+
+_LOGGER = logging.getLogger(__name__)
+
+_WEB_DIR = Path(__file__).parent / "web"
+_START_TIME = time.time()
+
+
+def _ui_token() -> str | None:
+    tok = os.environ.get("POCKET_TTS_UI_TOKEN", "").strip()
+    return tok or None
+
+
+def _check_auth(request: Request) -> None:
+    expected = _ui_token()
+    if not expected:
+        return  # auth disabled
+    provided = request.headers.get("X-UI-Token") or request.query_params.get("token")
+    if provided != expected:
+        raise HTTPException(401, "Invalid or missing UI token")
+
+
+def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
+    """Attach the UI routes + static files to an existing FastAPI app."""
+
+    # Static assets (css/js) under /ui/static
+    if _WEB_DIR.is_dir():
+        app.mount("/ui/static", StaticFiles(directory=str(_WEB_DIR)), name="ui-static")
+
+    @app.get("/ui")
+    async def ui_index(request: Request):
+        _check_auth(request)
+        index = _WEB_DIR / "index.html"
+        if not index.is_file():
+            raise HTTPException(404, "UI not bundled in this image")
+        return FileResponse(str(index))
+
+    @app.get("/api/ui/status")
+    async def ui_status(request: Request):
+        _check_auth(request)
+        t = get_timing()
+        return {
+            "version": __version__,
+            "uptime_s": int(time.time() - _START_TIME),
+            "device": os.environ.get("POCKET_TTS_DEVICE", "auto"),
+            "languages": [
+                {"checkpoint": c,
+                 "bcp47": LANGUAGE_TO_BCP47.get(c.split("_")[0], "??")}
+                for c in core.models.keys()
+            ],
+            "default_voice": core.default_voice,
+            "voice_count": len(core.voice_names()),
+            "auth_enabled": _ui_token() is not None,
+            "last_synth": t,
+        }
+
+    @app.get("/api/ui/config")
+    async def ui_get_config(request: Request):
+        _check_auth(request)
+        return {"config": config_store.effective_config()}
+
+    @app.post("/api/ui/config")
+    async def ui_set_config(request: Request):
+        _check_auth(request)
+        body = await request.json()
+        updates = body.get("updates", {})
+        if not isinstance(updates, dict):
+            raise HTTPException(400, "updates must be an object")
+        # If the default voice changed live, reflect it on core immediately.
+        new_default = updates.get("POCKET_TTS_VOICE")
+        config_store.save_settings(updates)
+        if new_default:
+            core.default_voice = str(new_default)
+        # Report which changed keys need a restart.
+        restart_keys = sorted(
+            k for k in updates
+            if k in config_store.RESTART_REQUIRED_KEYS
+        )
+        return {
+            "saved": True,
+            "restart_required_for": restart_keys,
+            "config": config_store.effective_config(),
+        }
+
+    @app.post("/api/ui/restart")
+    async def ui_restart(request: Request):
+        _check_auth(request)
+        _LOGGER.warning("Restart requested via web UI — exiting; Docker "
+                        "restart policy must bring the container back.")
+
+        def _die():
+            time.sleep(0.4)
+            os._exit(0)
+
+        threading.Thread(target=_die, daemon=True).start()
+        return JSONResponse(
+            {"status": "restarting",
+             "note": "Container will exit now. It must have a Docker restart "
+                     "policy (unless-stopped / always) to come back."}
+        )
+
+    _LOGGER.info("Web UI mounted at /ui (auth=%s)",
+                 "on" if _ui_token() else "off")

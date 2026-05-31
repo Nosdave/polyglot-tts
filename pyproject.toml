@@ -59,6 +59,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["polyglot_tts*"]
 
+[tool.setuptools.package-data]
+polyglot_tts = ["web/*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

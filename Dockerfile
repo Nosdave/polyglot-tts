@@ -109,7 +109,7 @@ COPY --from=builder /usr/local/bin/polyglot-tts /usr/local/bin/
 # volume with that path's ownership. If the path didn't pre-exist, Docker
 # creates the mountpoint as root and the non-root process gets EACCES.
 RUN useradd --system --uid 10001 --shell /usr/sbin/nologin --home-dir /app polyglot \
-    && mkdir -p /app/voices /app/voices-extra /app/.cache/huggingface \
+    && mkdir -p /app/voices /app/voices-extra /app/.cache/huggingface /app/config \
     && chown -R polyglot:polyglot /app
 
 ENV HOME=/app \

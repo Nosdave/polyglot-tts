@@ -162,7 +162,9 @@ async def _run_endpoints(
     if http_port is not None:
         import uvicorn
         from .http_server import build_app
+        from .ui_server import mount_ui
         app = build_app(core, core.voices_extra_dir)
+        mount_ui(app, core)
         config = uvicorn.Config(
             app, host=host, port=http_port,
             log_level="info", access_log=False, lifespan="off",
@@ -189,6 +191,11 @@ async def run() -> None:
 
     from . import __version__
     _LOGGER.info("Polyglot TTS v%s starting", __version__)
+
+    # Overlay UI-saved settings (settings.json) onto the environment BEFORE
+    # anything reads os.environ, so UI edits take effect on the next start.
+    from . import config_store
+    config_store.apply_overlay()
 
     # POCKET_TTS_LANGUAGES is the canonical key. POCKET_TTS_LANGUAGE (singular)
     # is the back-compat fallback for users migrating from araa47's fork —

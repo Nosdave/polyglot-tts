@@ -28,12 +28,13 @@ services:
       POCKET_TTS_VOICE: "eve"
     volumes:
       - ./voices-extra:/app/voices-extra
-      - polyglot-hf-cache:/root/.cache/huggingface
+      - polyglot-hf-cache:/app/.cache/huggingface
 
   # CUDA build — multi-arch (linux/amd64 + linux/arm64), so this same
   # image works on amd64 NVIDIA workstations AND on NVIDIA DGX Spark
   # (Grace + GB10) AND on Jetson Orin/AGX. Requires NVIDIA Container
-  # Toolkit on the host.
+  # Toolkit on the host. Mounts ./config so web-UI settings persist, and
+  # uses restart:unless-stopped so the UI's "Save & Restart" button works.
   polyglot-tts-cuda:
     image: ghcr.io/nosdave/polyglot-tts:cuda
     profiles: ["cuda"]
@@ -54,9 +55,13 @@ services:
       POCKET_TTS_LANGUAGES: "english_2026-04,german_24l,french_24l"
       POCKET_TTS_VOICE: "eve"
       POCKET_TTS_DEVICE: "cuda"
+      # Uncomment to require a token for the web UI (recommended if the
+      # port is reachable beyond a single-user LAN):
+      # POCKET_TTS_UI_TOKEN: "change-me"
     volumes:
       - ./voices-extra:/app/voices-extra
-      - polyglot-hf-cache:/root/.cache/huggingface
+      - ./config:/app/config                       # persist web-UI settings
+      - polyglot-hf-cache:/app/.cache/huggingface
 
   # Minimal — single language, CPU, smallest RAM footprint.
   polyglot-tts-minimal:
@@ -72,7 +77,7 @@ services:
       POCKET_TTS_WYOMING_PORT: ""   # disable Wyoming
     volumes:
       - ./voices-extra:/app/voices-extra
-      - polyglot-hf-cache:/root/.cache/huggingface
+      - polyglot-hf-cache:/app/.cache/huggingface
 
 volumes:
   polyglot-hf-cache:

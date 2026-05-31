@@ -2,6 +2,50 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [0.6.0] — 2026-06-01
+
+### Added — built-in web UI
+
+A small dependency-free web interface served by the HTTP endpoint at
+`/ui` (e.g. `http://<host>:10201/ui`). Three tabs:
+
+- **Dashboard** — device, loaded languages, voice count, uptime, last
+  synthesis timing (with RTF), and a quick text-to-speech test player.
+- **Voices** — list; add by drag-and-drop, file picker, or microphone
+  recording; delete custom voices.
+- **Settings** — view/edit runtime settings, enter a HuggingFace token
+  (for cloning), and restart the container to apply restart-only settings.
+
+Supporting pieces:
+
+- `config_store.py` — UI-saved settings are persisted to a JSON file
+  (`POCKET_TTS_CONFIG_FILE`, default `/app/config/settings.json`) and
+  overlaid onto the environment at startup. Precedence: UI > compose env >
+  default. Only an allow-list of keys is writable; the HF token is stored
+  but never displayed or logged.
+- Optional auth: `POCKET_TTS_UI_TOKEN` gates the UI page and `/api/ui/*`
+  (settings / token / restart / status). The `/v1/audio/*` integration API
+  stays open like before.
+- HF token entered in the UI applies live — the next voice you add uses it,
+  no restart needed.
+- Mic recording uses `MediaRecorder` → ffmpeg transcode. Browsers require a
+  secure context (`https://` or `localhost`); the UI detects a plain-HTTP
+  LAN context and shows a hint. `docs/WEB_UI.md` covers a reverse-proxy
+  (Tailscale serve / Caddy) for HTTPS.
+
+### Fixed
+
+- docker-compose.example.yaml: the HF-cache volume was mounted at
+  `/root/.cache/huggingface`, but the container runs as UID 10001 with
+  `HF_HOME=/app/.cache/huggingface`. Corrected to `/app/.cache/huggingface`
+  so the cache actually persists.
+
+### Docs
+
+- `docs/WEB_UI.md` (new), `docs/CONFIGURATION.md` (UI vars), README bullet.
+- compose example mounts `./config` and documents the restart-policy
+  requirement for the UI's Save & Restart button.
+
 ## [0.5.7] — 2026-05-31
 
 ### Docs

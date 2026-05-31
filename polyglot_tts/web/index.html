@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Polyglot TTS</title>
+  <link rel="stylesheet" href="/ui/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>🎙️ Polyglot TTS</h1>
+    <span id="version" class="muted"></span>
+  </header>
+
+  <nav id="tabs">
+    <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="voices">Voices</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+
+  <!-- token gate -->
+  <section id="token-gate" hidden>
+    <p>This server requires a UI token.</p>
+    <input id="token-input" type="password" placeholder="UI token" />
+    <button id="token-save">Unlock</button>
+    <p id="token-error" class="error"></p>
+  </section>
+
+  <main>
+    <!-- DASHBOARD -->
+    <section id="dashboard" class="tab active">
+      <div class="grid">
+        <div class="card"><h3>Status</h3><div id="status-box">…</div></div>
+        <div class="card"><h3>Last synthesis</h3><div id="timing-box">…</div></div>
+      </div>
+      <div class="card">
+        <h3>Quick test</h3>
+        <textarea id="test-text" rows="2">Hallo, dies ist ein Test.</textarea>
+        <div class="row">
+          <select id="test-voice"></select>
+          <button id="test-btn">Synthesize</button>
+        </div>
+        <audio id="test-audio" controls hidden></audio>
+        <span id="test-info" class="muted"></span>
+      </div>
+    </section>
+
+    <!-- VOICES -->
+    <section id="voices" class="tab" hidden>
+      <div class="card">
+        <h3>Add a voice</h3>
+        <div id="dropzone">Drop an audio file here, or
+          <label class="link">browse<input id="file-input" type="file" accept="audio/*" hidden /></label>
+        </div>
+        <div class="row">
+          <input id="upload-name" placeholder="voice name (optional, defaults to filename)" />
+        </div>
+        <div class="row">
+          <button id="mic-btn">● Record from mic</button>
+          <span id="mic-status" class="muted"></span>
+        </div>
+        <p id="mic-hint" class="muted hint" hidden>
+          Microphone needs a secure context. Open this page over
+          <code>https://</code> or <code>http://localhost</code> — over a plain
+          <code>http://&lt;lan-ip&gt;</code> the browser blocks the mic. See
+          docs/WEB_UI.md for a reverse-proxy setup.
+        </p>
+        <p id="upload-status" class="muted"></p>
+      </div>
+      <div class="card">
+        <h3>Voices <span id="voice-count" class="muted"></span></h3>
+        <div id="voice-list">…</div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="settings" class="tab" hidden>
+      <div class="card">
+        <h3>Settings</h3>
+        <p class="muted">Keys marked <span class="badge">restart</span> only take
+          effect after a container restart.</p>
+        <div id="settings-form">…</div>
+        <div class="row">
+          <button id="settings-save">Save</button>
+          <button id="restart-btn" class="danger">Save &amp; Restart container</button>
+        </div>
+        <p id="settings-status" class="muted"></p>
+      </div>
+      <div class="card">
+        <h3>HuggingFace token</h3>
+        <p class="muted">Only needed for <strong>voice cloning</strong> (the gated
+          Kyutai model). Preset voices work without it. Stored on the server;
+          the next voice you add uses it — no restart needed.</p>
+        <div class="row">
+          <input id="hf-token" type="password" placeholder="hf_…" />
+          <button id="hf-save">Save token</button>
+        </div>
+        <p id="hf-status" class="muted"></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="/ui/static/app.js"></script>
+</body>
+</html>

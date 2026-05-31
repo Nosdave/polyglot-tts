@@ -21,6 +21,7 @@
 - 🔒 **100 % self-hosted** — no cloud calls, no API keys required (except optional HuggingFace token for first model download).
 - 🐳 **Single Docker image** — `linux/amd64` + `linux/arm64`, CPU + CUDA variants on `ghcr.io`.
 - 🎛️ **Fully env-driven** — every behaviour is a single environment variable; no YAML editing required.
+- 🖥️ **Built-in web UI** — dashboard, voice management (drag-drop / mic / delete), and settings (incl. HF token) at `http://<host>:10201/ui`. See [docs/WEB_UI.md](docs/WEB_UI.md).
 
 ---
 

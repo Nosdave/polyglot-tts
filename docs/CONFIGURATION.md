@@ -109,6 +109,16 @@ clone your own voices you need a (free) token:
 
 The token value is never logged.
 
+## Web UI
+
+| Variable | Default | What it does |
+|---|---|---|
+| `POCKET_TTS_UI_TOKEN` | unset | If set, the web UI (`/ui`) and its `/api/ui/*` endpoints require this token. Unset = open (LAN-only). |
+| `POCKET_TTS_CONFIG_FILE` | `/app/config/settings.json` | Where UI-saved settings are persisted. Mount this path to keep edits across restarts. |
+
+See [docs/WEB_UI.md](WEB_UI.md) for the full UI guide (mic-recording HTTPS
+requirement, reverse-proxy setup, settings-restart behaviour).
+
 ## Disabling endpoints
 
 To run Wyoming-only (HA-only deployment, smaller attack surface):
