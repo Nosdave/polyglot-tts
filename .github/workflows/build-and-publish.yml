@@ -104,7 +104,10 @@ jobs:
           cache-from: type=gha,scope=cuda
           cache-to: type=gha,mode=max,scope=cuda
 
-  # NOTE: linux/arm64+CUDA (DGX Spark / Grace+Blackwell) needs a custom torch
-  # wheel index that's not on PyPI. The Spark build is verified locally in
-  # production. CI for arm64+CUDA is tracked as a follow-up — for now Spark
-  # users build with `docker build --build-arg PYTORCH_INDEX=<spark-index>`.
+  # NOTE: linux/arm64+CUDA (DGX Spark, Jetson) is intentionally NOT built
+  # in CI. PyTorch's cu128 wheels ship ARM64 binaries that run fine on
+  # CUDA-13 hosts via driver back-compat, BUT QEMU-emulated arm64 builds
+  # on amd64 runners are slow (30-60 min) and flaky on multi-GB wheel
+  # downloads. A native build on the actual ARM+CUDA target takes 10-15
+  # min and is reliable. See docs/SPARK_BUILD.md for the user-facing
+  # workflow and scripts/build-spark.sh for a one-liner wrapper.
