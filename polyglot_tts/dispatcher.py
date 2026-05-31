@@ -211,9 +211,21 @@ async def run() -> None:
     wyoming_port = _int_env("POCKET_TTS_WYOMING_PORT", 10200)
     http_port = _int_env("POCKET_TTS_HTTP_PORT", 10201)
 
-    # Don't log token presence — the value never appears here, but log lines
-    # mentioning HF_TOKEN sometimes get scraped by log-aggregators that then
-    # alert on the literal string. Silent is safer.
+    # HuggingFace token resolution (only needed for voice cloning — the gated
+    # kyutai/pocket-tts model). Order: HF_TOKEN env wins; otherwise read it
+    # from the file named by HF_TOKEN_FILE (Docker-secret friendly). We set
+    # HF_TOKEN in the environment so huggingface_hub picks it up.
+    # Token presence is deliberately NOT logged.
+    if not os.environ.get("HF_TOKEN"):
+        token_file = os.environ.get("HF_TOKEN_FILE")
+        if token_file and os.path.isfile(token_file):
+            try:
+                with open(token_file, encoding="utf-8") as fh:
+                    tok = fh.read().strip()
+                if tok:
+                    os.environ["HF_TOKEN"] = tok
+            except OSError:
+                pass
 
     # 1) Load models
     models = _load_models(checkpoints, device)

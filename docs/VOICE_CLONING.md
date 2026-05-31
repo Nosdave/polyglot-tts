@@ -4,6 +4,24 @@ Polyglot TTS clones voices from a single audio sample. One clip produces
 voice embeddings that work in *every* loaded language — you do not need
 separate recordings per language.
 
+## Prerequisite: a HuggingFace token (one-time, free)
+
+Kyutai's voice-cloning model (`kyutai/pocket-tts`) is **gated** on
+HuggingFace. The 26 built-in preset voices work without any token, but
+**cloning your own voice requires one**:
+
+1. Free account at <https://huggingface.co>.
+2. Open <https://huggingface.co/kyutai/pocket-tts> → click
+   **"Agree and access repository"** (accepts the gate).
+3. Create a read token at <https://huggingface.co/settings/tokens>.
+4. Give it to the container via a `.env` file (or Docker secret) — see
+   [CONFIGURATION.md → Secrets](CONFIGURATION.md#secrets--credentials).
+   **Never paste the token into a committed file.**
+
+Without a token, the server still runs — it transparently falls back to
+the non-cloning model and your preset voices work fine. You only hit the
+gate when you drop a WAV to clone.
+
 ## The 30-second version
 
 1. Get a clean 10–30 second WAV of someone speaking.

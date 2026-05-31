@@ -93,8 +93,14 @@ COPY --from=builder /usr/local/bin/polyglot-tts /usr/local/bin/
 
 # Run as a non-root user (UID 10001). Owners of mounted volumes (voices-extra,
 # hf-cache) must allow read+write to UID 10001 — see docs/CONFIGURATION.md.
+#
+# IMPORTANT: pre-create the FULL mount paths (/app/.cache/huggingface and
+# /app/voices-extra) owned by polyglot. When Docker mounts an empty named
+# volume onto a path that already exists in the image, it initializes the
+# volume with that path's ownership. If the path didn't pre-exist, Docker
+# creates the mountpoint as root and the non-root process gets EACCES.
 RUN useradd --system --uid 10001 --shell /usr/sbin/nologin --home-dir /app polyglot \
-    && mkdir -p /app/voices /app/voices-extra /app/.cache \
+    && mkdir -p /app/voices /app/voices-extra /app/.cache/huggingface \
     && chown -R polyglot:polyglot /app
 
 ENV HOME=/app \

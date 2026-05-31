@@ -12,7 +12,7 @@
 - 🏠 **Wyoming endpoint** — plug-and-play with [Home Assistant](https://www.home-assistant.io/voice_control/) Voice-Pipeline and Voice-PE.
 - 🤖 **OpenAI-Speech-compatible HTTP** — works out of the box with [OpenClaw](https://openclaw.ai/), LangChain, custom scripts, and anything else that speaks the OpenAI Speech API.
 - 🎙️ **Voice cloning via drop-file** — copy a 10–30 s WAV into `voices-extra/` and the voice is available in *every* loaded language within ~30 s. No restart, no config edit.
-- 🚀 **GPU-accelerated** — production-tested on NVIDIA Blackwell (33–38× real-time). The published `:cuda` image is multi-arch (linux/amd64 + linux/arm64), so NVIDIA DGX Spark (Grace + GB10), Jetson Orin/AGX, and ordinary amd64 NVIDIA hosts all `docker pull` the same tag. Auto-detect CUDA vs CPU at startup.
+- 🚀 **GPU-accelerated** — measured ~5× real-time on NVIDIA Blackwell (DGX Spark GB10), faster than real-time so streaming voice has zero lag. The published `:cuda` image is multi-arch (linux/amd64 + linux/arm64), so DGX Spark (Grace + GB10), Jetson Orin/AGX, and ordinary amd64 NVIDIA hosts all `docker pull` the same tag. Auto-detect CUDA vs CPU at startup.
 - 🥧 **Runs small too** — Pi 5 reaches real-time for a single language. HA Green (ARM64) and ordinary x86 boxes work.
 - 🗣️ **26 built-in voices** plus unlimited user clones (Kyutai's voice library).
 - 🔢 **Text normalization built in** — numbers, dates, currencies, units, and abbreviations spoken naturally in the target language.
@@ -72,19 +72,20 @@ curl -X POST http://localhost:10201/v1/audio/speech \
 
 ## Hardware
 
-| Box | Mode | RTF (Real-Time Factor) | First-chunk latency |
+| Box | Mode | RTF (Real-Time Factor) | Source |
 |---|---|---|---|
-| NVIDIA DGX Spark (ARM64 + Blackwell, CUDA 13) | Multi-lang DE/EN/FR | 33–38× | ~80 ms |
-| RTX 3060+ (amd64, CUDA 12) | Single-lang | 20–40× | ~100 ms |
-| MacBook Air M4 (CPU only) | Single-lang | ~6× | ~200 ms |
-| Mini-PC N100 / similar (CPU) | Single-lang | ~3–4× | ~400 ms |
-| Raspberry Pi 5 (CPU) | Single-lang | ~2–3× | ~500 ms |
-| Raspberry Pi 4 (CPU) | Single-lang | ~1–2× | ~800 ms |
-| HA Green (ARM64 CPU) | Single-lang | ~1–2× | ~800 ms |
+| NVIDIA DGX Spark (ARM64 + Blackwell GB10, CUDA 13) | DE single-lang, GPU | **~5×** | measured (cu128 — see below) |
+| MacBook Air M4 (CPU only) | Single-lang | ~6× | Kyutai benchmark |
+| RTX 3060+ (amd64, CUDA 12) | Single-lang | ~20–40× | **estimate** |
+| Mini-PC N100 / similar (CPU) | Single-lang | ~3–4× | **estimate** |
+| Raspberry Pi 5 (CPU) | Single-lang | ~1–2× | **estimate** — practical floor |
+| Raspberry Pi 4 / HA Green (ARM64 CPU) | Single-lang | ~0.5–1× | **estimate** — may be below real-time |
 
-RTF > 1× means real-time-or-better. Multi-language mode roughly multiplies RAM usage by `N` (one model per language); inference per request is unaffected.
+RTF > 1× means real-time-or-better (no streaming lag). Only the Spark and M4 rows are measured; the rest are rough estimates pending real benchmarks — see [docs/PERFORMANCE.md](docs/PERFORMANCE.md) and please open a PR if you measure your hardware.
 
-See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for benchmark methodology.
+> **Blackwell note:** the Spark ~5× is lower than native Blackwell should give — the `:cuda` image uses cu128, which lacks native sm_121 kernels and falls back to JIT. Native sm_121 (cu130) is being explored in [issue #1](https://github.com/Nosdave/polyglot-tts/issues/1). 5× is still faster than real-time, so streaming voice has no lag.
+
+Multi-language mode roughly multiplies RAM usage by `N` (one model per language); inference per request is unaffected. On weak CPUs (Pi-class), prefer single-language for lower memory and latency.
 
 ---
 

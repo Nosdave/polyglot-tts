@@ -2,18 +2,33 @@
 
 ## Real-Time Factor table
 
-| Hardware | Mode | RTF (production-verified) | Notes |
-|---|---|---|---|
-| NVIDIA DGX Spark (Grace + Blackwell, CUDA 13) | DE/EN/FR multi-lang | 33–38× | Author's reference deployment. `docker pull :cuda` works directly — multi-arch image. |
-| Consumer NVIDIA GPU (RTX 3060+, CUDA 12) | Single-lang | 20–40× | Most workstation GPUs. |
-| MacBook Air M4 (CPU only) | Single-lang | ~6× | Kyutai's own published benchmark. |
-| Intel/AMD Mid-Range x86 CPU | Single-lang | ~3–4× | N100-class, ~3.4 GHz boost. |
-| Raspberry Pi 5 | Single-lang | ~2–3× | Pi 5 with 4 ARM Cortex-A76 cores. |
-| Raspberry Pi 4 | Single-lang | ~1–2× | Barely real-time; OK for short replies. |
-| HA Green (ARM64 CPU) | Single-lang | ~1–2× | Equivalent silicon to Pi 4. |
+**RTF = output-audio-length / synthesis-wall-time.** RTF 1× means real-time
+(audio generated as fast as it plays); RTF 5× means 5 s of audio in 1 s.
+For streaming voice, anything ≥1× means no playback lag.
 
-**RTF = output-audio-length / synthesis-wall-time.**
-RTF 1× means real-time, RTF 30× means 30 s of audio synthesized in 1 s.
+Only the **measured** rows below are from real hardware. The rest are
+**rough estimates** and almost certainly imprecise — if you run Polyglot
+on one of these and measure, please open a PR with real numbers.
+
+| Hardware | Mode | RTF | Source |
+|---|---|---|---|
+| NVIDIA DGX Spark (Grace + Blackwell GB10, sm_121, CUDA 13) | DE single-lang, GPU | **~5×** | **Measured** (cu128 build; see note below) |
+| DGX Spark CPU **(under heavy load)** | DE single-lang | **~0.24×** | **Measured** (box was saturated by other workloads — not representative of an idle CPU) |
+| MacBook Air M4 (CPU only) | Single-lang | ~6× | Kyutai's published benchmark |
+| Consumer NVIDIA GPU (RTX 3060+, CUDA 12) | Single-lang | ~20–40× (estimate) | Unverified |
+| Intel/AMD mid-range x86 CPU (N100-class) | Single-lang | ~3–4× (estimate) | Unverified |
+| Raspberry Pi 5 (4× Cortex-A76) | Single-lang | ~1–2× (estimate) | Unverified — likely the practical floor |
+| Raspberry Pi 4 / HA Green (ARM64) | Single-lang | ~0.5–1× (estimate) | Unverified — may be below real-time |
+
+### Note on Blackwell GB10 (DGX Spark) RTF
+
+The measured ~5× on Spark is **lower than you'd expect from a Blackwell
+GPU**. The `:cuda` image is built against PyTorch cu128, whose bundled
+nvrtc does not natively know sm_121 (GB10), so kernels fall back to
+runtime-JIT/Triton paths. Native sm_121 kernels (via a cu130 build) should
+lift this — tracked in
+[issue #1](https://github.com/Nosdave/polyglot-tts/issues/1). ~5× is still
+comfortably faster than real-time, so streaming voice has no lag today.
 
 ## What costs you RTF
 

@@ -62,7 +62,52 @@ which checkpoint to use per request.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `HF_TOKEN` | unset | HuggingFace token. Only needed if a checkpoint you load is gated. |
+| `HF_TOKEN` | unset | HuggingFace token. **Only needed for voice cloning** — see below. Basic TTS with the 26 built-in voices needs no token. |
+| `HF_TOKEN_FILE` | unset | Path to a file containing the token (for Docker secrets). Read at startup if `HF_TOKEN` is not already set. |
+
+### When you need an HF token
+
+The preset voices and all language models load **without any token**. The
+*voice-cloning* model (`kyutai/pocket-tts`) is gated on HuggingFace, so to
+clone your own voices you need a (free) token:
+
+1. Create a free account at <https://huggingface.co>.
+2. Visit <https://huggingface.co/kyutai/pocket-tts> and click
+   **"Agree and access repository"** (one-time gate acceptance).
+3. Create a read token at <https://huggingface.co/settings/tokens>.
+4. Provide it to the container by **one** of these (never paste it into a
+   compose file you might commit):
+
+   **`.env` file (simplest):**
+   ```
+   # .env  (chmod 600; .gitignore already excludes it)
+   HF_TOKEN=hf_xxxxxxxxxxxxx
+   ```
+   ```yaml
+   services:
+     polyglot-tts:
+       env_file: .env
+   ```
+
+   **Docker secret:**
+   ```yaml
+   secrets:
+     hf_token:
+       file: ./hf_token.txt
+   services:
+     polyglot-tts:
+       secrets: [hf_token]
+       environment:
+         HF_TOKEN_FILE: /run/secrets/hf_token
+   ```
+
+   **Shell environment:**
+   ```bash
+   export HF_TOKEN=hf_xxxxxxxxxxxxx
+   docker compose up -d
+   ```
+
+The token value is never logged.
 
 ## Disabling endpoints
 

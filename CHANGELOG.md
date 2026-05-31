@@ -2,6 +2,48 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [0.5.3] — 2026-05-31
+
+First real-hardware deployment (NVIDIA DGX Spark, GB10) surfaced two bugs
+and corrected two inaccurate claims.
+
+### Fixed
+
+- **Named-volume permission bug.** With the v0.5.1 non-root hardening
+  (UID 10001), mounting a fresh named volume at the HuggingFace cache
+  path failed with `PermissionError: /app/.cache/huggingface`. The
+  Dockerfile now pre-creates the full `/app/.cache/huggingface` path
+  owned by `polyglot`, so Docker initializes the empty volume with the
+  correct ownership. Affected anyone using the example compose with
+  named volumes.
+
+### Added
+
+- `HF_TOKEN_FILE` support: the dispatcher reads the token from a file
+  (Docker-secret friendly) when `HF_TOKEN` is not set directly.
+
+### Docs
+
+- **Corrected RTF claims.** README/PERFORMANCE.md previously claimed
+  33–38× real-time on Blackwell. Direct measurement on a GB10 (both the
+  public image and the pre-fork production image) shows **~5×** — there
+  is no regression between them; the 33–38× figure was never reproduced.
+  Tables now mark which rows are measured vs. estimated.
+- Documented the **HF token flow for voice cloning** — the
+  `kyutai/pocket-tts` model is gated; preset voices need no token.
+  `.env` / Docker-secret / shell-env options in CONFIGURATION.md and
+  VOICE_CLONING.md.
+- Hardware table de-marketed: only DGX Spark and M4 rows are measured;
+  the rest are flagged as estimates pending real benchmarks.
+
+### Known issues
+
+- GPU RTF on Blackwell GB10 is capped at ~5× by the cu128 build's lack
+  of native sm_121 kernels (JIT fallback). Native sm_121 via a cu130
+  build is being explored — see
+  [issue #1](https://github.com/Nosdave/polyglot-tts/issues/1). 5× is
+  still faster than real-time; streaming voice has no lag.
+
 ## [0.5.2] — 2026-05-31
 
 ### Changed
