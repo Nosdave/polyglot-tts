@@ -62,5 +62,6 @@ async def run_wyoming_server(
             core.models,
             core.voice_states,
             advertised_bcp47,
+            core,
         )
     )

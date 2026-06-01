@@ -190,6 +190,7 @@ class PocketTTSEventHandler(AsyncEventHandler):
         models: dict,                       # {checkpoint_name: TTSModel}
         voice_states: dict,                 # {voice_name: {checkpoint_name: state}}
         advertised_bcp47: list[str],        # ["de", "fr", "en"]
+        core: Any = None,                   # PolyglotCore — live voice registry
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -199,6 +200,7 @@ class PocketTTSEventHandler(AsyncEventHandler):
         self.models = models
         self.voice_states = voice_states
         self.advertised_bcp47 = advertised_bcp47
+        self._core = core
         self.default_checkpoint = next(iter(models.keys()))
         self.default_bcp47 = LANGUAGE_TO_BCP47.get(self.default_checkpoint.split("_")[0], "en")
         # bcp47 -> loaded checkpoint, from the actually-loaded models (handles
@@ -557,7 +559,18 @@ class PocketTTSEventHandler(AsyncEventHandler):
 
     async def handle_event(self, event: Event) -> bool:
         if Describe.is_type(event.type):
-            await self.write_event(self.wyoming_info.event())
+            # Rebuild the advertised voice list from the LIVE registry so a
+            # voice cloned at runtime shows up on the next HA integration
+            # refresh — without a restart. The startup-built self.wyoming_info
+            # is only a fallback if no core was wired. core.voice_names() reads
+            # under the registry lock (the file-watcher writes from a thread).
+            if self._core is not None:
+                info = get_wyoming_info(
+                    self._core.voice_names(), self.advertised_bcp47
+                )
+            else:
+                info = self.wyoming_info
+            await self.write_event(info.event())
             return True
 
         # ── HA-Streaming path (Synthesize{Start,Chunk,Stop}) ──────────────
@@ -715,17 +728,17 @@ def get_wyoming_info(voices: list[str], bcp47_langs: list[str]) -> Info:
             name=v,
             attribution=kyutai,
             installed=True,
-            description=f"Pocket TTS multilingual voice: {v}",
+            description=f"Polyglot TTS voice: {v}",
             version=None,
             languages=list(bcp47_langs),
         ))
     from . import __version__
     return Info(
         tts=[TtsProgram(
-            name="pocket-tts",
+            name="polyglot-tts",
             attribution=kyutai,
             installed=True,
-            description=f"Pocket TTS multi-language same-voice streaming ({','.join(bcp47_langs)})",
+            description=f"Polyglot TTS — multi-language, same voice, streaming ({','.join(bcp47_langs)})",
             version=__version__,
             voices=tts_voices,
             supports_synthesize_streaming=True,  # ← enables HA's text-IN streaming-mode
