@@ -120,18 +120,21 @@ def _terminate_lines(text: str) -> str:
 # better as pauses (commas, periods).
 _PUNCT_MAP: Final[dict[str, str]] = {
     "…": ", ",       # ellipsis → comma+pause
-    "–": "-",         # en-dash → hyphen
-    "—": ", ",       # em-dash → comma+pause
+    "–": ", ",       # en-dash (Gedankenstrich) → comma+pause
+    "—": ", ",       # em-dash (Gedankenstrich) → comma+pause
     "→": " ",
     "←": " ",
     "↑": " ",
     "↓": " ",
     "↔": " ",
-    "„": '"',         # German opening quote
-    "“": '"',         # German closing quote (= English opening)
-    "”": '"',
-    "«": '"',
-    "»": '"',
+    # Quotation marks are delimiters, not spoken — drop them entirely. In-word
+    # apostrophes (l'eau, don't) are kept as a straight ' below.
+    "„": "",          # German opening quote
+    "“": "",          # German/English closing/opening quote
+    "”": "",
+    "«": "",          # French guillemets
+    "»": "",
+    '"': "",          # ASCII double quote
     "‚": "'",
     "‘": "'",
     "’": "'",
@@ -146,6 +149,94 @@ _PUNCT_MAP: Final[dict[str, str]] = {
     "·": ", ",
     "★": "",
     "☆": "",
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Abbreviations — sprachspezifisch
+# "z. B." spells "z", "B" and reads the dots as sentence-ends. Expand the
+# common dotted abbreviations to full words. `\s*` between tokens tolerates a
+# normal space, a non-breaking space, or none ("z.B."). Matched case-
+# insensitively; the trailing dot is consumed.
+# ─────────────────────────────────────────────────────────────────────────
+
+_ABBREV: Final[dict[str, dict[str, str]]] = {
+    "de": {
+        r"i\.\s*d\.\s*R\.": "in der Regel",
+        r"u\.\s*v\.\s*m\.": "und vieles mehr",
+        r"z\.\s*B\.": "zum Beispiel",
+        r"z\.\s*T\.": "zum Teil",
+        r"u\.\s*a\.": "unter anderem",
+        r"u\.\s*U\.": "unter Umständen",
+        r"d\.\s*h\.": "das heißt",
+        r"o\.\s*Ä\.": "oder Ähnliches",
+        r"\busw\.": "und so weiter",
+        r"\bbzw\.": "beziehungsweise",
+        r"\bggf\.": "gegebenenfalls",
+        r"\bevtl\.": "eventuell",
+        r"\bvgl\.": "vergleiche",
+        r"\binkl\.": "inklusive",
+        r"\bexkl\.": "exklusive",
+        r"\bca\.": "circa",
+        r"\betc\.": "et cetera",
+        r"\bNr\.": "Nummer",
+        r"\bMio\.": "Millionen",
+        r"\bMrd\.": "Milliarden",
+        r"\bProf\.": "Professor",
+        r"\bDr\.": "Doktor",
+        r"\bTel\.": "Telefon",
+        r"\bStr\.": "Straße",
+    },
+    "en": {
+        r"\be\.\s*g\.": "for example",
+        r"\bi\.\s*e\.": "that is",
+        r"\betc\.": "et cetera",
+        r"\bvs\.": "versus",
+        r"\bapprox\.": "approximately",
+        r"\bincl\.": "including",
+        r"\bMrs\.": "Misses",
+        r"\bMr\.": "Mister",
+        r"\bDr\.": "Doctor",
+        r"\bProf\.": "Professor",
+    },
+    "fr": {
+        r"\bp\.\s*ex\.": "par exemple",
+        r"\bc\.-?\s*à\.?-?\s*d\.": "c'est-à-dire",
+        r"\betc\.": "et cetera",
+        r"\bcf\.": "voir",
+        r"\benv\.": "environ",
+    },
+    "it": {
+        r"\bp\.\s*es\.": "per esempio",
+        r"\becc\.": "eccetera",
+        r"\bsig\.": "signor",
+        r"\bdott\.": "dottore",
+    },
+    "es": {
+        r"\bp\.\s*ej\.": "por ejemplo",
+        r"\betc\.": "etcétera",
+        r"\baprox\.": "aproximadamente",
+        r"\bSra\.": "señora",
+        r"\bSr\.": "señor",
+        r"\bnúm\.": "número",
+    },
+    "pt": {
+        r"\bp\.\s*ex\.": "por exemplo",
+        r"\betc\.": "etcetera",
+        r"\bSra\.": "senhora",
+        r"\bSr\.": "senhor",
+        r"\bnúm\.": "número",
+    },
+}
+
+# Compile once. Longest patterns first so multi-token forms (i. d. R.) win
+# before any shorter prefix could match.
+_ABBREV_PATTERNS: dict[str, list[tuple[re.Pattern, str]]] = {
+    lang: [
+        (re.compile(pat, re.IGNORECASE), repl)
+        for pat, repl in sorted(mapping.items(), key=lambda kv: -len(kv[0]))
+    ]
+    for lang, mapping in _ABBREV.items()
 }
 
 
@@ -406,7 +497,12 @@ def normalize(text: str, lang: str = "de") -> str:
     for pat, repl in _MD_PATTERNS:
         out = pat.sub(repl, out)
 
-    # 3b: Terminate paragraphs / list items so they don't run together. Must
+    # 3b: Expand dotted abbreviations ("z. B." → "zum Beispiel") before the
+    # dots get read as sentence-ends or the letters spelled out.
+    for pat, repl in _ABBREV_PATTERNS.get(lang, ()):
+        out = pat.sub(repl, out)
+
+    # 3c: Terminate paragraphs / list items so they don't run together. Must
     # come AFTER the markdown strip (bullets gone, newlines still present) and
     # BEFORE the whitespace-collapse that would erase the line structure.
     out = _terminate_lines(out)
@@ -415,6 +511,10 @@ def normalize(text: str, lang: str = "de") -> str:
     for k, v in _PUNCT_MAP.items():
         if k in out:
             out = out.replace(k, v)
+
+    # 4b: A free-standing hyphen used as a dash (spaces on both sides) becomes a
+    # comma pause. In-word hyphens (E-Auto) and signed numbers (-5) are spared.
+    out = re.sub(r"\s+-\s+", ", ", out)
 
     # 5: Unit expansion (number + unit-token together)
     unit_pat = _UNIT_PATTERNS.get(lang)

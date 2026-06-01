@@ -125,3 +125,41 @@ def test_numbered_list_items_segment():
     # leading "1." / "2." markers are list markers; items segmented
     assert out.endswith("zwei.")
     assert "." in out[:-1]
+
+
+# ── quotes, dashes, abbreviations ────────────────────────────────────────────
+
+def test_quotes_are_dropped():
+    assert normalize('Er sagte "Hallo" und ging.', lang="de") == "Er sagte Hallo und ging."
+    assert normalize("Er sagte „Hallo“ und ging.", lang="de") == "Er sagte Hallo und ging."
+
+
+def test_apostrophe_in_word_kept():
+    # in-word apostrophe must survive (French elision)
+    assert "l'eau" in normalize("Bois de l'eau.", lang="fr").lower()
+
+
+def test_spaced_hyphen_becomes_comma():
+    assert normalize("Das Haus - schön - teuer.", lang="de") == "Das Haus, schön, teuer."
+
+
+def test_inword_hyphen_and_negative_kept():
+    out = normalize("Das E-Auto bei -5 Grad.", lang="de")
+    assert "E-Auto" in out
+    assert "minus fünf" in out
+
+
+def test_de_abbreviations():
+    assert normalize("Nimm z. B. Milch.", lang="de") == "Nimm zum Beispiel Milch."
+    assert normalize("u. a. Brot", lang="de").startswith("unter anderem")
+    assert normalize("d. h. später", lang="de").startswith("das heißt")
+    assert "und so weiter" in normalize("Äpfel, Birnen usw.", lang="de")
+
+
+def test_en_abbreviations():
+    assert normalize("Use e.g. milk.", lang="en") == "Use for example milk."
+    assert "that is" in normalize("dairy, i.e. milk", lang="en")
+
+
+def test_fr_abbreviations():
+    assert normalize("Prends p. ex. du lait.", lang="fr") == "Prends par exemple du lait."
