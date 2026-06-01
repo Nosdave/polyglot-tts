@@ -116,18 +116,27 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
     @app.post("/api/ui/restart")
     async def ui_restart(request: Request):
         _check_auth(request)
-        _LOGGER.warning("Restart requested via web UI — exiting; Docker "
-                        "restart policy must bring the container back.")
+        _LOGGER.warning("Restart requested via web UI — re-execing the process "
+                        "(re-reads settings; no Docker restart policy needed).")
 
-        def _die():
+        def _restart():
             time.sleep(0.4)
-            os._exit(0)
+            try:
+                # Replace this process image with a fresh `python -m polyglot_tts`.
+                # The container's PID 1 is re-exec'd in place, so the container
+                # stays alive and settings.json is re-read — works regardless of
+                # the Docker restart policy.
+                import sys
+                os.execv(sys.executable, [sys.executable, "-m", "polyglot_tts"])
+            except Exception:  # noqa: BLE001
+                # Fall back to exit; needs a restart policy to come back.
+                os._exit(0)
 
-        threading.Thread(target=_die, daemon=True).start()
+        threading.Thread(target=_restart, daemon=True).start()
         return JSONResponse(
             {"status": "restarting",
-             "note": "Container will exit now. It must have a Docker restart "
-                     "policy (unless-stopped / always) to come back."}
+             "note": "The server is re-execing now; it will be back in ~30–90 s "
+                     "(model reload + warmup). No Docker restart policy required."}
         )
 
     _LOGGER.info("Web UI mounted at /ui (auth=%s)",

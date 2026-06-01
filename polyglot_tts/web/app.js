@@ -292,10 +292,17 @@ async function saveSettings(restart) {
     ? `Saved. Restart required for: ${need.join(", ")}.`
     : "Saved (took effect live).";
   if (restart) {
-    if (!confirm("Restart the container now? It must have a Docker restart policy.")) return;
-    st.textContent = "Restarting… the container will exit and come back.";
+    if (!confirm("Restart the server now to apply restart-only settings?\n" +
+                 "It comes back automatically in ~30–90 s.")) return;
+    st.textContent = "Restarting… reloading models + warmup (~30–90 s). This page will reconnect.";
     await api("/api/ui/restart", { method: "POST" }).catch(() => {});
-    setTimeout(() => { st.textContent = "Restart triggered. Reload in ~1–2 min."; }, 1500);
+    // Poll the status endpoint until it answers again.
+    setTimeout(function poll() {
+      api("/api/ui/status").then((r) => {
+        if (r.ok) { st.textContent = "✅ Back up."; refreshStatus(); refreshVoices(); }
+        else setTimeout(poll, 4000);
+      }).catch(() => setTimeout(poll, 4000));
+    }, 8000);
   }
 }
 

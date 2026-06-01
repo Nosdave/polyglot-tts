@@ -2,6 +2,19 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [0.6.2] — 2026-06-01
+
+### Fixed
+
+- **Web UI "Save & Restart" no longer kills the container permanently.**
+  It previously called `os._exit(0)` and relied on a Docker restart policy
+  to bring the container back — so on a container with `restart: "no"` (or
+  none) the server just stopped and never returned. It now **re-execs the
+  process in place** (`os.execv`): the container's PID 1 is replaced with a
+  fresh `python -m polyglot_tts`, settings.json is re-read, and the UI
+  polls + reconnects automatically (~30–90 s). Works regardless of the
+  Docker restart policy.
+
 ## [0.6.1] — 2026-06-01
 
 ### Added

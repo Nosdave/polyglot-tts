@@ -93,19 +93,15 @@ Some settings only take effect after a restart — they're marked
 - `POCKET_TTS_WARMUP`
 - `POCKET_TTS_LAZY_LOAD`
 
-The **Save & Restart** button writes the settings and then exits the
-process. For the container to come back, it **must have a Docker restart
-policy**:
+The **Save & Restart** button writes the settings and then **re-execs the
+server process in place** — the container stays alive, the dispatcher
+re-reads the settings file, and models reload + warm up (~30–90 s). The UI
+polls and reconnects automatically. This works **regardless of the Docker
+restart policy** (no `restart: unless-stopped` required for the button —
+though that policy is still recommended for normal container resilience).
 
-```yaml
-services:
-  polyglot-tts:
-    restart: unless-stopped
-```
-
-Without that policy the container will simply stop. Live settings
-(default voice, text-norm, auto-LID, min-synth-chars) and the HF token
-apply immediately without a restart.
+Live settings (default voice, text-norm, auto-LID, min-synth-chars) and the
+HF token apply immediately without any restart.
 
 ## HuggingFace token
 
