@@ -4,35 +4,82 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Version display was stuck at 0.5.0.** `__version__` is now read from
-  the installed package metadata (single source of truth = pyproject), so
-  the UI and `/health` report the real version. pyproject bumped to 0.6.3.
+## [0.6.3] — 2026-06-02
 
 ### Added
 
-- `POST /v1/text/normalize` — preview the text-normalization pipeline
-  (numbers, units, dates, German ordinals, Markdown strip) for a given
-  text + language. Surfaced in the web UI as a live preview panel.
+- **`POST /v1/text/normalize`** — preview the text-normalization pipeline
+  (numbers, units, dates, ordinals, Markdown strip) for a given text +
+  language. Surfaced in the web UI as a live, editable preview panel.
+- **Sampling temperature (`POCKET_TTS_TEMP`)** exposed via env, the
+  `/api/ui/config` REST surface, and the Settings UI. The one built-in
+  prosody lever pocket-tts offers: `0.1`–`1.5` (default `0.7`); higher =
+  more expressive/varied but less stable. It is **global** (every voice and
+  language) and **baked into the model at load**, so it is not a per-request
+  parameter and a change needs a restart.
+- **Selectable lighter language variants.** The Settings language list now
+  offers the non-`_24l` checkpoints (e.g. `german` vs `german_24l`),
+  enumerated from the installed pocket-tts, so weak hardware (Raspberry Pi)
+  can trade quality for speed/RAM.
+- **HuggingFace helper links** next to the token field (request gated model
+  access → create a read token), sourced from backend field metadata.
+
+### Fixed
+
+- **Version display was stuck at 0.5.0.** `__version__` is read from the
+  installed package metadata (single source of truth = pyproject), so the UI
+  and `/health` report the real version.
+- **Numbers in it/es/pt were read in German.** Added Italian/Spanish/
+  Portuguese unit maps and removed the silent German fallback.
+- **Lighter language variants didn't work.** `bcp47 → checkpoint` resolution
+  was hardcoded to the `_24l` names, so loading the plain `german` left `de`
+  resolving to an unloaded `german_24l` and falling back to the default
+  language. Resolution is now built from the **actually-loaded** models, in
+  both the HTTP and Wyoming paths.
+- **Cloned voices didn't appear in Home Assistant without a restart.** The
+  Wyoming `Describe` response replayed the voice list built once at startup.
+  It now rebuilds from the **live** registry (lock-guarded), so a voice
+  cloned at runtime shows up on the next HA integration refresh.
+
+### Changed
+
+- ⚠️ **Wyoming program renamed `pocket-tts` → `polyglot-tts`.** This changes
+  the advertised program name, so Home Assistant creates a new TTS entity
+  and orphans the old `tts.pocket_tts_*` — repoint any automations that
+  reference it after upgrading.
+- **No German number fallback for unlisted languages.** Numbers always use
+  the requested language via num2words (left as digits if unsupported);
+  units expand only where a localized map exists. An unlisted language is
+  never silently read in German. Works for all 6 Kyutai languages and any
+  future ones.
+- **One checkpoint per language** is enforced in the config layer
+  (`POCKET_TTS_LANGUAGES` deduped by language on save), not just in the UI —
+  loading two variants of one language wasted RAM. The UI checkbox
+  exclusivity now mirrors backend behaviour.
+
+### Improved (text normalization)
+
+- **Paragraphs and list items are terminated** with a period so they no
+  longer run together ("Milch Brot Eier" → "Milch. Brot. Eier."). A cleanup
+  pass tidies the punctuation artifacts the symbol maps leave behind.
+- **Quotation marks are dropped** (delimiters, not spoken); in-word
+  apostrophes are kept.
+- **Dashes become comma pauses** (en/em-dash, and a free-standing spaced
+  hyphen); in-word hyphens (`E-Auto`) and signed numbers (`-5`) are spared.
+- **Dotted abbreviations are expanded** per language ("z. B." → "zum
+  Beispiel", "e.g." → "for example", …), tolerant of spacing and case.
 
 ### Improved (web UI)
 
-- **Endpoints/ports on the dashboard now reflect reality.** The HTTP row
-  shows the actual address you're connected on (the browser knows it);
-  Wyoming/timing show their in-container bind port with an explicit note
-  that a remapped Docker host port (e.g. `11200:10200`) is what you
-  actually connect to.
-- **Gated voice creation.** Adding a voice is now an explicit 3-step flow:
-  pick/record a sample → enter a name that doesn't already exist (validated
-  live) → click **Generate voice** (enabled only when both are satisfied).
-  No more accidental uploads with an auto-filename. Mic recordings set the
-  sample instead of uploading immediately.
-- **Languages are checkboxes**, making multi-language selection obvious.
-- **Auto language-ID shows a hint** when only one language is loaded
-  (detection has no effect with a single language).
-- Static assets are cache-busted with a version query so UI updates reach
-  the browser without a manual hard-refresh.
+- Endpoints/ports on the dashboard reflect reality (HTTP shows the address
+  you connected on; Wyoming/timing show the in-container bind port with a
+  note about remapped Docker host ports).
+- **Gated voice creation** — an explicit 3-step flow (pick/record a sample →
+  enter a unique name, validated live → **Generate voice**). Mic recordings
+  set the sample instead of uploading immediately.
+- Languages are checkboxes; auto language-ID shows a hint when only one
+  language is loaded; static assets are cache-busted so UI updates reach the
+  browser without a manual hard-refresh.
 
 ## [0.6.2] — 2026-06-01
 
