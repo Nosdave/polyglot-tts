@@ -139,6 +139,7 @@ ENV POCKET_TTS_LANGUAGES=english_2026-04,german_24l,french_24l \
     POCKET_TTS_DEVICE=auto \
     POCKET_TTS_WARMUP=true \
     POCKET_TTS_TEXT_NORM=true \
+    POCKET_TTS_TEMP=0.7 \
     POCKET_TTS_AUTO_LID=true \
     POCKET_TTS_VOICES_DIR=/app/voices \
     POCKET_TTS_VOICES_EXTRA_DIR=/app/voices-extra

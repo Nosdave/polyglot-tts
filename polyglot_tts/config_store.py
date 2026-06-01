@@ -39,6 +39,7 @@ EDITABLE_KEYS: set[str] = {
     "POCKET_TTS_LAZY_LOAD",       # restart required (and not yet implemented)
     "POCKET_TTS_MIN_SYNTH_CHARS", # live-ish
     "POCKET_TTS_WARMUP",          # restart required
+    "POCKET_TTS_TEMP",            # restart required (baked into model at load)
     "HF_TOKEN",                   # live (next encode)
 }
 
@@ -48,6 +49,7 @@ RESTART_REQUIRED_KEYS: set[str] = {
     "POCKET_TTS_DEVICE",
     "POCKET_TTS_LAZY_LOAD",
     "POCKET_TTS_WARMUP",
+    "POCKET_TTS_TEMP",
 }
 
 # Per-field UI metadata: a short help text, an input type, and (optionally)
@@ -92,6 +94,15 @@ FIELD_META: dict[str, dict] = {
     "POCKET_TTS_WARMUP": {
         "type": "bool",
         "help": "Run a short synth per language at startup to warm CUDA kernels.",
+    },
+    "POCKET_TTS_TEMP": {
+        "type": "number",
+        "help": "Sampling temperature (0.1–1.5, default 0.7). Higher = more "
+                "expressive/varied but less stable; lower = flatter/more "
+                "consistent. GLOBAL — applies to every voice and language, not "
+                "per request. Baked into the model at load, so a change only "
+                "takes effect after a container restart.",
+        "placeholder": "0.7",
     },
     "HF_TOKEN": {
         "type": "secret",

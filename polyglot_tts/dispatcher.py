@@ -67,16 +67,40 @@ def _int_env(name: str, default: int | None) -> int | None:
         return default
 
 
+def _resolve_temp() -> float:
+    """Sampling temperature for synthesis, read once at load time.
+
+    Global (applies to every loaded language/voice) and only consumed here, at
+    model construction — pocket-tts bakes it into the model, so it can't change
+    per request or without a restart. Clamped to a sane [0.1, 1.5] range; out-of
+    range or unparseable values fall back to the pocket-tts default of 0.7.
+    """
+    raw = os.environ.get("POCKET_TTS_TEMP", "").strip()
+    if not raw:
+        return 0.7
+    try:
+        val = float(raw.replace(",", "."))
+    except ValueError:
+        _LOGGER.warning("POCKET_TTS_TEMP=%r not a number — using 0.7", raw)
+        return 0.7
+    if not 0.1 <= val <= 1.5:
+        _LOGGER.warning("POCKET_TTS_TEMP=%s out of [0.1, 1.5] — using 0.7", val)
+        return 0.7
+    return val
+
+
 def _load_models(checkpoints: list[str], device_pref: str) -> dict:
     """Load each requested checkpoint. Returns dict {ckpt: TTSModel}."""
     from pocket_tts import TTSModel
 
+    temp = _resolve_temp()
+    _LOGGER.info("Sampling temperature (global, load-time): %.2f", temp)
     models: dict = {}
     for ckpt in checkpoints:
         try:
             _LOGGER.info("Loading checkpoint: %s ...", ckpt)
             t0 = time.time()
-            m = TTSModel.load_model(language=ckpt)
+            m = TTSModel.load_model(language=ckpt, temp=temp)
             dt = time.time() - t0
             _LOGGER.info("  loaded in %.1fs, sample_rate=%d Hz", dt, m.sample_rate)
             models[ckpt] = m
