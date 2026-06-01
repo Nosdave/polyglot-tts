@@ -69,3 +69,14 @@ def test_numbers_use_the_requested_language_not_german():
 def test_units_localized_per_language():
     assert "per cento" in normalize("50 % di umidità", lang="it")
     assert "por ciento" in normalize("50 % de humedad", lang="es")
+
+
+def test_no_german_fallback_for_unknown_language():
+    # A language num2words supports but we have no unit map for → its own words.
+    nl = normalize("Het is 20 graden.", lang="nl")
+    assert "twintig" in nl and "zwanzig" not in nl
+
+    # A language num2words does NOT support → the digit is left as-is,
+    # never silently read in German.
+    xx = normalize("Value is 20 here.", lang="xx")
+    assert "20" in xx and "zwanzig" not in xx

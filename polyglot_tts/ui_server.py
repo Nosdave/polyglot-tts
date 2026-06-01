@@ -102,7 +102,14 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
     @app.get("/api/ui/config")
     async def ui_get_config(request: Request):
         _check_auth(request)
-        return {"config": config_store.effective_config()}
+        from .core import available_checkpoints
+        return {
+            "config": config_store.effective_config(),
+            # Real, installed checkpoints (incl. fast non-24l variants) so the
+            # UI can offer lighter models for weak hardware. Dynamic — future
+            # Kyutai languages show up automatically.
+            "checkpoints": available_checkpoints(),
+        }
 
     @app.post("/api/ui/config")
     async def ui_set_config(request: Request):

@@ -174,3 +174,52 @@ class PolyglotCore:
 
 def auto_lid_enabled() -> bool:
     return os.environ.get("POCKET_TTS_AUTO_LID", "true").lower() in ("1", "true", "yes")
+
+
+def available_checkpoints() -> list[dict]:
+    """Enumerate the language checkpoints the installed pocket-tts ships.
+
+    Returns a list of {checkpoint, bcp47, quality} dicts, e.g.
+        {"checkpoint": "german_24l", "bcp47": "de", "quality": "high"}
+        {"checkpoint": "german",     "bcp47": "de", "quality": "fast"}
+
+    Reads the bundled config/*.yaml names so future Kyutai languages appear
+    automatically. Falls back to a static list if enumeration fails.
+    """
+    import glob
+
+    names: list[str] = []
+    try:
+        import pocket_tts  # noqa: PLC0415
+
+        base = os.path.dirname(pocket_tts.__file__)
+        for pat in (os.path.join(base, "config", "*.yaml"),
+                    os.path.join(base, "**", "*.yaml")):
+            for f in glob.glob(pat, recursive=True):
+                names.append(os.path.basename(f)[:-5])  # strip .yaml
+    except Exception:  # noqa: BLE001
+        pass
+
+    names = sorted(set(names))
+    if not names:
+        # Static fallback (pocket-tts 2.1.0).
+        names = [
+            "english_2026-04", "english_2026-01", "english",
+            "french_24l", "german", "german_24l",
+            "italian", "italian_24l", "spanish", "spanish_24l",
+            "portuguese", "portuguese_24l",
+        ]
+
+    out = []
+    for n in names:
+        lang_key = n.split("_")[0]
+        bcp47 = LANGUAGE_TO_BCP47.get(lang_key, lang_key[:2])
+        # Heuristic quality label: *_24l = high (24-layer), else fast/default.
+        if n.endswith("_24l"):
+            quality = "high (24-layer)"
+        elif n.startswith("english"):
+            quality = "latest" if "2026-04" in n else "older"
+        else:
+            quality = "fast (smaller)"
+        out.append({"checkpoint": n, "bcp47": bcp47, "quality": quality})
+    return out

@@ -342,22 +342,27 @@ def normalize(text: str, lang: str = "de") -> str:
 
     Args:
         text: raw input (may contain Markdown, units, special chars)
-        lang: BCP47 language code (de/en/fr — others fall back to de)
+        lang: BCP47 language code (de/en/fr/it/es/pt have unit maps;
+              any other language num2words supports still gets correct
+              number-to-words).
 
     Returns:
         Normalized text ready for `model.generate_audio_stream()`.
 
     Behavior:
         - If `POCKET_TTS_TEXT_NORM=false`, returns input unchanged.
-        - If num2words not installed, skip number-to-words step (logs warning).
-        - Unknown language falls back to 'de' for unit map.
+        - If num2words is not installed, numbers are left as digits.
+        - Numbers always use the REQUESTED language. If neither our unit map
+          nor num2words knows the language, the number is left as digits —
+          never silently read in German. Unit symbols are only expanded for
+          languages we have a unit map for; otherwise they're left as-is.
     """
     if not _ENABLED or not text:
         return text
 
-    # Default to German if language not supported by our unit map
-    if lang not in _UNITS:
-        lang = "de"
+    # NOTE: we deliberately do NOT fall back to German for unknown languages.
+    # Numbers go through num2words in the requested language (digits if
+    # unsupported); units expand only where we have a localized map.
 
     # 1+2+3: Markdown strip
     out = text

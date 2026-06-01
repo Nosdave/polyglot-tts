@@ -101,6 +101,7 @@ function renderEndpoints(s) {
 
 let LOADED_LANGS = [];
 let VOICE_NAMES = [];
+let CHECKPOINTS = [];
 
 // ── voices ──────────────────────────────────────────────────────────────────
 async function refreshVoices() {
@@ -299,14 +300,17 @@ document.getElementById("test-btn").onclick = async () => {
 function settingField(key, c) {
   const val = c.value == null ? "" : String(c.value);
   const ph = c.placeholder ? ` placeholder="${c.placeholder}"` : "";
-  // Languages: render as checkboxes for the available checkpoints so it's
-  // clear how to enable multiple languages.
+  // Languages: render as checkboxes from the real installed checkpoints,
+  // including the lighter (non-24l) variants for weak hardware.
   if (key === "POCKET_TTS_LANGUAGES") {
     const sel = val.split(",").map((x) => x.trim()).filter(Boolean);
-    const opts = (c.options && c.options.length) ? c.options : sel;
+    const cps = (CHECKPOINTS && CHECKPOINTS.length)
+      ? CHECKPOINTS
+      : (c.options || sel).map((o) => ({ checkpoint: o, bcp47: o.slice(0, 2), quality: "" }));
     return `<div class="lang-grid" data-key="${key}">` +
-      opts.map((o) => `<label class="lang-opt">
-        <input type="checkbox" value="${o}" ${sel.includes(o) ? "checked" : ""} /> ${o}
+      cps.map((cp) => `<label class="lang-opt" title="${cp.quality}">
+        <input type="checkbox" value="${cp.checkpoint}" ${sel.includes(cp.checkpoint) ? "checked" : ""} />
+        <span>${cp.checkpoint}</span><small>${cp.bcp47} · ${cp.quality}</small>
       </label>`).join("") + `</div>`;
   }
   if (c.type === "bool") {
@@ -342,7 +346,9 @@ async function refreshSettings() {
   VOICE_NAMES = await currentVoiceNames();
   const r = await api("/api/ui/config");
   if (!r.ok) return;
-  const cfg = (await r.json()).config;
+  const body = await r.json();
+  const cfg = body.config;
+  CHECKPOINTS = body.checkpoints || [];
   const form = document.getElementById("settings-form");
   form.innerHTML = "";
   const oneLang = LOADED_LANGS.length === 1;
@@ -351,6 +357,12 @@ async function refreshSettings() {
     const c = cfg[key];
     const badge = c.restart_required ? '<span class="badge">restart</span>' : "";
     let help = c.help || "";
+    if (key === "POCKET_TTS_LANGUAGES") {
+      help += ' Pick one checkpoint per language. <code>_24l</code> = ' +
+        'higher quality (24-layer, slower); the plain name (e.g. ' +
+        '<code>german</code>) is the lighter, faster model — better for weak ' +
+        'CPUs like a Raspberry Pi. More languages = more RAM.';
+    }
     // Contextual hint: auto language-ID does nothing with a single language.
     if (key === "POCKET_TTS_AUTO_LID" && oneLang) {
       help += ' <b>Only one language is loaded</b>, so language detection has ' +

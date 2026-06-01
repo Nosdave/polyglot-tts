@@ -124,10 +124,12 @@ code { background: #0d1117; padding: 1px 5px; border-radius: 4px; }
 .steps { margin: 0 0 12px; padding-left: 18px; color: var(--muted); font-size: 0.86rem; }
 .steps li { margin: 2px 0; }
 .lang-grid { display: flex; flex-wrap: wrap; gap: 10px; flex: 1; }
-.lang-opt { display: flex; align-items: center; gap: 5px; font-family: ui-monospace, monospace;
-  font-size: 0.85rem; background: #0d1117; border: 1px solid var(--border);
+.lang-opt { display: flex; align-items: center; gap: 6px; font-family: ui-monospace, monospace;
+  font-size: 0.82rem; background: #0d1117; border: 1px solid var(--border);
   border-radius: 6px; padding: 5px 9px; cursor: pointer; }
 .lang-opt input { flex: none; min-width: auto; }
+.lang-opt small { color: var(--muted); font-size: 0.72rem; }
+.lang-opt:has(input:checked) { border-color: var(--accent); background: #11233a; }
 #generate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .norm-result { background: #0d1117; border: 1px solid var(--border); border-radius: 6px;
   padding: 10px; font-family: ui-monospace, monospace; font-size: 0.9rem;
