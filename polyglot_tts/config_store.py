@@ -96,6 +96,12 @@ FIELD_META: dict[str, dict] = {
     "HF_TOKEN": {
         "type": "secret",
         "help": "Only needed for voice cloning (gated Kyutai model). Stored, never shown.",
+        "links": [
+            {"label": "1. Request model access",
+             "url": "https://huggingface.co/kyutai/pocket-tts"},
+            {"label": "2. Create a read token",
+             "url": "https://huggingface.co/settings/tokens"},
+        ],
     },
 }
 
@@ -132,12 +138,39 @@ def apply_overlay() -> None:
                      len(data), config_path(), loud)
 
 
+def _normalize_languages(value: str) -> str:
+    """Enforce one checkpoint per language. Loading e.g. both 'german' and
+    'german_24l' wastes RAM and only one is ever used, so keep the first
+    checkpoint seen per language (dedup key = the language prefix).
+
+    This is the canonical behaviour — the web UI's per-language exclusivity
+    just visualizes it; the REST/config path enforces it regardless of caller.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for ckpt in (c.strip() for c in value.split(",")):
+        if not ckpt:
+            continue
+        lang = ckpt.split("_")[0]
+        if lang in seen:
+            continue
+        seen.add(lang)
+        out.append(ckpt)
+    return ",".join(out)
+
+
 def save_settings(updates: dict) -> dict:
     """Merge UI updates into the settings file. Returns the new effective dict.
 
     Only EDITABLE_KEYS are persisted. HF_TOKEN is also applied live to the
     current process so the next voice encode uses it without a restart.
+    POCKET_TTS_LANGUAGES is normalized to one checkpoint per language.
     """
+    if updates.get("POCKET_TTS_LANGUAGES"):
+        updates = dict(updates)
+        updates["POCKET_TTS_LANGUAGES"] = _normalize_languages(
+            str(updates["POCKET_TTS_LANGUAGES"])
+        )
     with _LOCK:
         current = _read_file()
         for k, v in updates.items():
@@ -183,6 +216,7 @@ def effective_config() -> dict:
             "help": meta.get("help", ""),
             "placeholder": meta.get("placeholder", ""),
             "options": meta.get("options", []),
+            "links": meta.get("links", []),
         }
         if k == "HF_TOKEN":
             out[k] = {"value": bool(os.environ.get("HF_TOKEN")),

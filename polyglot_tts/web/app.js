@@ -392,6 +392,16 @@ async function refreshSettings() {
     });
   });
 
+  // HF token helper links (request model access + create a token), from the
+  // backend field metadata so the UI just mirrors what the config layer ships.
+  const hfLinks = document.getElementById("hf-links");
+  if (hfLinks) {
+    const links = (cfg.HF_TOKEN && cfg.HF_TOKEN.links) || [];
+    hfLinks.innerHTML = links
+      .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label} ↗</a>`)
+      .join(" · ");
+  }
+
   // populate the normalize-preview language dropdown from loaded languages
   const nl = document.getElementById("norm-lang");
   if (nl) {
