@@ -64,6 +64,15 @@ async function refreshStatus() {
          <div class="kv"><span>Synth</span><span>${(t.synth_ms/1000).toFixed(2)} s</span></div>
          <div class="kv"><span>RTF</span><span>${rtf}×</span></div>`
       : '<span class="muted">No synthesis yet.</span>';
+    const eps = s.endpoints || [];
+    document.getElementById("endpoints-box").innerHTML = eps.length
+      ? eps.map((e) => {
+          const off = e.port === "off";
+          const addr = off ? "disabled" : `${s.host}:${e.port}`;
+          return `<div class="kv"><span>${e.name}</span>
+            <span class="${off ? "muted" : "port"}">${addr}</span></div>`;
+        }).join("")
+      : '<span class="muted">—</span>';
   } catch (e) { /* ignore */ }
 }
 

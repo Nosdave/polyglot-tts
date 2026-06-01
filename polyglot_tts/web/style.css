@@ -106,8 +106,9 @@ button.recording { background: var(--danger); animation: pulse 1s infinite; }
 .voice-item .name { flex: 1; }
 .voice-item .kind { font-size: 0.75rem; color: var(--muted); }
 .voice-item button { padding: 4px 10px; font-size: 0.8rem; }
-.kv { display: flex; justify-content: space-between; padding: 3px 0; }
+.kv { display: flex; justify-content: space-between; padding: 3px 0; gap: 12px; }
 .kv span:first-child { color: var(--muted); }
+.port { font-family: ui-monospace, monospace; color: var(--accent); }
 .setting-block { margin: 14px 0; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .setting-block:last-child { border-bottom: none; }
 .setting-row { display: flex; align-items: center; gap: 10px; }

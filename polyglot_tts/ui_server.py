@@ -70,10 +70,24 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
     async def ui_status(request: Request):
         _check_auth(request)
         t = get_timing()
+
+        def _port(name: str, default: str) -> str:
+            v = os.environ.get(name, default)
+            return v if v != "" else "off"
+
         return {
             "version": __version__,
             "uptime_s": int(time.time() - _START_TIME),
             "device": os.environ.get("POCKET_TTS_DEVICE", "auto"),
+            "host": os.environ.get("POCKET_TTS_HOST", "0.0.0.0"),
+            "endpoints": [
+                {"name": "Wyoming (Home Assistant)",
+                 "port": _port("POCKET_TTS_WYOMING_PORT", "10200")},
+                {"name": "OpenAI-Speech HTTP",
+                 "port": _port("POCKET_TTS_HTTP_PORT", "10201")},
+                {"name": "Timing (observability)",
+                 "port": _port("POCKET_TTS_TIMING_PORT", "10299")},
+            ],
             "languages": [
                 {"checkpoint": c,
                  "bcp47": LANGUAGE_TO_BCP47.get(c.split("_")[0], "??")}

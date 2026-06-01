@@ -2,6 +2,16 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [Unreleased]
+
+### Improved (web UI)
+
+- The dashboard now shows the **active endpoints and ports** (Wyoming,
+  OpenAI-Speech HTTP, timing) with their bind address, or "disabled" when
+  a port is turned off.
+- Static assets (`app.js`, `style.css`) are cache-busted with a version
+  query so UI updates reach the browser without a manual hard-refresh.
+
 ## [0.6.2] — 2026-06-01
 
 ### Fixed
