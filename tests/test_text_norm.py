@@ -80,3 +80,48 @@ def test_no_german_fallback_for_unknown_language():
     # never silently read in German.
     xx = normalize("Value is 20 here.", lang="xx")
     assert "20" in xx and "zwanzig" not in xx
+
+
+# ── paragraph / list segmentation ────────────────────────────────────────────
+
+def test_list_items_get_periods():
+    # bullets are stripped, each item becomes its own sentence
+    out = normalize("- Milch\n- Brot\n- Eier", lang="de")
+    assert out == "Milch. Brot. Eier."
+
+
+def test_paragraph_break_gets_period():
+    out = normalize("Erster Absatz ohne Punkt\n\nZweiter Absatz", lang="de")
+    assert out == "Erster Absatz ohne Punkt. Zweiter Absatz."
+
+
+def test_existing_terminal_punct_not_doubled():
+    # a colon lead-in keeps its colon; items still get periods
+    out = normalize("Einkaufsliste:\n- Milch\n- Brot", lang="de")
+    assert out == "Einkaufsliste: Milch. Brot."
+
+
+def test_single_line_untouched_by_segmentation():
+    # no newline → no forced period appended
+    out = normalize("Hallo Welt", lang="de")
+    assert out == "Hallo Welt"
+
+
+def test_parentheses_become_clean_commas():
+    # parens map to commas; cleanup removes the dangling space-before-comma.
+    # Single-line input gets no forced terminal period (by design).
+    out = normalize("Die Heizung (Vorlauf) läuft", lang="de")
+    assert out == "Die Heizung, Vorlauf, läuft"
+
+
+def test_parenthetical_at_line_end_terminates_cleanly():
+    # in a multi-line context the line is terminated; ", ." collapses to "."
+    out = normalize("Das ist gut (wirklich)\nNächster Punkt", lang="de")
+    assert out == "Das ist gut, wirklich. Nächster Punkt."
+
+
+def test_numbered_list_items_segment():
+    out = normalize("1. eins\n2. zwei", lang="de")
+    # leading "1." / "2." markers are list markers; items segmented
+    assert out.endswith("zwei.")
+    assert "." in out[:-1]

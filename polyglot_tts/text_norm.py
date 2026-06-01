@@ -78,6 +78,43 @@ _MD_PATTERNS: Final[list[tuple[re.Pattern, str]]] = [
 ]
 
 
+# Punctuation that already ends a clause/sentence with a pause or stop. A line
+# ending in one of these is NOT given an extra period by _terminate_lines.
+_TERMINAL_PUNCT: Final[frozenset[str]] = frozenset(".!?:;,…")
+
+
+def _terminate_lines(text: str) -> str:
+    """Add a period at structural line breaks (paragraphs, list items) that
+    don't already end with punctuation, then join everything onto one line.
+
+    Without this, the final whitespace-collapse turns
+
+        Milch
+        Brot
+        Eier
+
+    into "Milch Brot Eier" — spoken as one breathless run. Each line becomes
+    its own sentence instead: "Milch. Brot. Eier."
+
+    Single-line input is returned untouched (we don't force a period onto a
+    short prompt). The one false-positive is genuinely soft-wrapped prose (a
+    sentence broken across lines), which gets an extra pause at the wrap — far
+    less jarring than the run-on it prevents, and rare for TTS input that is
+    usually one line per paragraph.
+    """
+    if "\n" not in text:
+        return text
+    out: list[str] = []
+    for ln in text.split("\n"):
+        s = ln.strip()
+        if not s:
+            continue
+        if s[-1] not in _TERMINAL_PUNCT:
+            s += "."
+        out.append(s)
+    return " ".join(out)
+
+
 # Per-language punctuation/whitespace maps
 # We replace certain Unicode-punct with ASCII equivalents that TTS handles
 # better as pauses (commas, periods).
@@ -369,6 +406,11 @@ def normalize(text: str, lang: str = "de") -> str:
     for pat, repl in _MD_PATTERNS:
         out = pat.sub(repl, out)
 
+    # 3b: Terminate paragraphs / list items so they don't run together. Must
+    # come AFTER the markdown strip (bullets gone, newlines still present) and
+    # BEFORE the whitespace-collapse that would erase the line structure.
+    out = _terminate_lines(out)
+
     # 4: Punctuation / special character map
     for k, v in _PUNCT_MAP.items():
         if k in out:
@@ -417,7 +459,16 @@ def normalize(text: str, lang: str = "de") -> str:
 
     # 7: Collapse whitespace
     out = re.sub(r"\s+", " ", out).strip()
-    return out
+
+    # 8: Tidy punctuation artifacts left by the symbol maps (e.g. "(x)" → ", x, "
+    # leaves a dangling comma) and by line-termination meeting existing punct.
+    out = re.sub(r"\s+([,.;:!?])", r"\1", out)        # " ," → ","
+    out = re.sub(r"[,;:]+(\s*[.!?])", r"\1", out)      # ", ." → "."
+    out = re.sub(r"([,;:])[,;:]+", r"\1", out)         # ", ," → ","
+    out = re.sub(r"([.!?])[.!?]+", r"\1", out)         # ".." / "?!" → first
+    out = re.sub(r"^[\s,;:]+", "", out)                # leading dangling punct
+    out = re.sub(r"[\s,;:]+$", ".", out)               # trailing comma → period
+    return out.strip()
 
 
 # ─────────────────────────────────────────────────────────────────────────
