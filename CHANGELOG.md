@@ -4,6 +4,15 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Build
+
+- **Image layers split so updates pull only a few MB, not gigabytes.** The app
+  code used to be installed into the same multi-GB `site-packages` layer as
+  torch/CUDA, so any code change re-pulled the whole thing. The app now lives
+  in its own thin layer (`/opt/polyglot-pkg`, on `PYTHONPATH`); the heavy deps
+  layer stays cached across releases. Also fixed the healthcheck's Wyoming
+  describe grep to match the renamed `polyglot-tts` program.
+
 ### Changed
 
 - **Sampling temperature now applies live and per request.** `model.temp` is

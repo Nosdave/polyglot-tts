@@ -53,13 +53,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install torch --index-url "https://download.pytorch.org/whl/${PYTORCH_INDEX}" && \
     uv pip install -r pyproject.toml
 
-# Step 2: install the package itself (non-editable)
-COPY polyglot_tts/ polyglot_tts/
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --no-deps .
-
-# Step 3: trim site-packages — strip docs/tests/headers we don't need at runtime.
-# Verified safe in production: pocket_tts loads fine without these.
+# Step 2: trim site-packages — strip docs/tests/headers we don't need at runtime.
+# Verified safe in production: pocket_tts loads fine without these. Done BEFORE
+# the app is installed (deps only here), so this heavy layer stays cached when
+# only our app code changes.
 RUN rm -rf /usr/local/lib/python3.13/site-packages/sympy \
            /usr/local/lib/python3.13/site-packages/sympy-*.dist-info \
            /usr/local/lib/python3.13/site-packages/networkx \
@@ -81,6 +78,14 @@ RUN rm -rf /usr/local/lib/python3.13/site-packages/sympy \
     && find /usr/local/lib/python3.13/site-packages -type f -name "*.c"   -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.13/site-packages -type f -name "*.h"   -delete 2>/dev/null || true
 
+# Step 3: install ONLY the app (+ its metadata) into a separate prefix, as the
+# LAST builder step. Keeping it out of the multi-GB deps site-packages means a
+# code change rebuilds just this tiny layer — the heavy deps layer (and its pull)
+# stays cached. `--no-deps` because every dependency is already installed above.
+COPY polyglot_tts/ polyglot_tts/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --no-deps --target=/app-pkg .
+
 # ============================================================
 # RUNTIME STAGE
 # ============================================================
@@ -97,8 +102,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/cache/apt/*
 
+# Heavy deps (torch + cuda + everything else) — stable layer, cached on pull
+# unless a dependency actually changes.
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
-COPY --from=builder /usr/local/bin/polyglot-tts /usr/local/bin/
+# App code + metadata as a separate, thin layer (changes every release; the deps
+# layer above is unaffected, so pulls only fetch these few MB). PYTHONPATH puts
+# it on sys.path for `python -m polyglot_tts`; the dist-info keeps
+# importlib.metadata working so /health reports the real version.
+COPY --from=builder /app-pkg /opt/polyglot-pkg
+ENV PYTHONPATH=/opt/polyglot-pkg
 
 # Run as a non-root user (UID 10001). Owners of mounted volumes (voices-extra,
 # hf-cache) must allow read+write to UID 10001 — see docs/CONFIGURATION.md.
@@ -127,7 +139,7 @@ EXPOSE 10200 10201 10299
 # Health check on whichever endpoint is enabled — try HTTP first (cheapest)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
     CMD curl -fsS "http://localhost:${POCKET_TTS_HTTP_PORT:-10201}/health" >/dev/null 2>&1 \
-        || echo '{"type":"describe"}' | nc -w 5 localhost "${POCKET_TTS_WYOMING_PORT:-10200}" | grep -q "pocket-tts" \
+        || echo '{"type":"describe"}' | nc -w 5 localhost "${POCKET_TTS_WYOMING_PORT:-10200}" | grep -q "polyglot-tts" \
         || exit 1
 
 # Default env values shipped with the image
