@@ -80,6 +80,11 @@ class SpeechRequest(BaseModel):
     instructions: str | None = None
 
 
+class NormalizeRequest(BaseModel):
+    input: str = Field(..., max_length=MAX_INPUT_CHARS)
+    language: str | None = None
+
+
 # Voice-name validation: allow [A-Za-z0-9_-.] only, no leading dot, no ".."
 _VOICE_NAME_OK = lambda s: (
     bool(s)
@@ -359,18 +364,31 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
             },
         )
 
+    @app.post("/v1/text/normalize")
+    async def normalize_endpoint(req: NormalizeRequest) -> dict:
+        """Preview the text-normalization pipeline (numbers, units, ordinals,
+        Markdown strip) for a given text + language. Useful for tuning what
+        the synthesizer will actually speak."""
+        lang = (req.language or core.default_bcp47 or "de").split("-")[0]
+        return {
+            "input": req.input,
+            "language": lang,
+            "normalized": normalize_text(req.input, lang=lang),
+        }
+
     @app.get("/")
     async def root() -> dict:
         return {
             "name": "polyglot-tts",
             "version": __version__,
             "endpoints": {
-                "openai_speech": "POST /v1/audio/speech",
-                "voices_list":   "GET /v1/audio/voices",
-                "voices_add":    "POST /v1/audio/voices",
-                "voices_delete": "DELETE /v1/audio/voices/{name}",
-                "languages":     "GET /v1/audio/languages",
-                "health":        "GET /health",
+                "openai_speech":  "POST /v1/audio/speech",
+                "voices_list":    "GET /v1/audio/voices",
+                "voices_add":     "POST /v1/audio/voices",
+                "voices_delete":  "DELETE /v1/audio/voices/{name}",
+                "languages":      "GET /v1/audio/languages",
+                "text_normalize": "POST /v1/text/normalize",
+                "health":         "GET /health",
             },
         }
 

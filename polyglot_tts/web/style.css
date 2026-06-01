@@ -121,3 +121,14 @@ button.recording { background: var(--danger); animation: pulse 1s infinite; }
 }
 audio { width: 100%; margin-top: 10px; }
 code { background: #0d1117; padding: 1px 5px; border-radius: 4px; }
+.steps { margin: 0 0 12px; padding-left: 18px; color: var(--muted); font-size: 0.86rem; }
+.steps li { margin: 2px 0; }
+.lang-grid { display: flex; flex-wrap: wrap; gap: 10px; flex: 1; }
+.lang-opt { display: flex; align-items: center; gap: 5px; font-family: ui-monospace, monospace;
+  font-size: 0.85rem; background: #0d1117; border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+.lang-opt input { flex: none; min-width: auto; }
+#generate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.norm-result { background: #0d1117; border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px; font-family: ui-monospace, monospace; font-size: 0.9rem;
+  white-space: pre-wrap; word-break: break-word; }

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Polyglot TTS</title>
-  <link rel="stylesheet" href="/ui/static/style.css?v=063" />
+  <link rel="stylesheet" href="/ui/static/style.css?v=070" />
 </head>
 <body>
   <header>
@@ -50,11 +50,13 @@
     <section id="voices" class="tab" hidden>
       <div class="card">
         <h3>Add a voice</h3>
+        <ol class="steps">
+          <li><b>1.</b> Pick an audio sample (drop a file, browse, or record).</li>
+          <li><b>2.</b> Give it a name that doesn't already exist.</li>
+          <li><b>3.</b> Click <b>Generate voice</b>.</li>
+        </ol>
         <div id="dropzone">Drop an audio file here, or
           <label class="link">browse<input id="file-input" type="file" accept="audio/*" hidden /></label>
-        </div>
-        <div class="row">
-          <input id="upload-name" placeholder="voice name (optional, defaults to filename)" />
         </div>
         <div class="row">
           <button id="mic-btn">● Record from mic</button>
@@ -66,6 +68,15 @@
           <code>http://&lt;lan-ip&gt;</code> the browser blocks the mic. See
           docs/WEB_UI.md for a reverse-proxy setup.
         </p>
+        <div class="row"><span class="muted">Selected sample:</span>
+          <span id="selected-file" class="muted">— none yet —</span></div>
+        <div class="row">
+          <input id="upload-name" placeholder="voice name (required)" autocomplete="off" />
+        </div>
+        <p id="name-hint" class="field-help"></p>
+        <div class="row">
+          <button id="generate-btn" disabled>Generate voice</button>
+        </div>
         <p id="upload-status" class="muted"></p>
       </div>
       <div class="card">
@@ -88,6 +99,22 @@
         <p id="settings-status" class="muted"></p>
       </div>
       <div class="card">
+        <h3>Text normalization preview</h3>
+        <p class="muted">See exactly what the synthesizer will speak after
+          numbers, units, dates, German ordinals, and Markdown are expanded.
+          Also available at <code>POST /v1/text/normalize</code>.</p>
+        <div class="row">
+          <textarea id="norm-input" rows="2">Am 20. Juni sind es 23,5 °C bei 1013 hPa.</textarea>
+        </div>
+        <div class="row">
+          <select id="norm-lang"></select>
+          <button id="norm-btn">Preview</button>
+        </div>
+        <p class="muted">Result:</p>
+        <p id="norm-output" class="norm-result">—</p>
+      </div>
+
+      <div class="card">
         <h3>HuggingFace token</h3>
         <p class="muted">Only needed for <strong>voice cloning</strong> (the gated
           Kyutai model). Preset voices work without it. Stored on the server;
@@ -101,6 +128,6 @@
     </section>
   </main>
 
-  <script src="/ui/static/app.js?v=063"></script>
+  <script src="/ui/static/app.js?v=070"></script>
 </body>
 </html>

@@ -64,15 +64,8 @@ async function refreshStatus() {
          <div class="kv"><span>Synth</span><span>${(t.synth_ms/1000).toFixed(2)} s</span></div>
          <div class="kv"><span>RTF</span><span>${rtf}×</span></div>`
       : '<span class="muted">No synthesis yet.</span>';
-    const eps = s.endpoints || [];
-    document.getElementById("endpoints-box").innerHTML = eps.length
-      ? eps.map((e) => {
-          const off = e.port === "off";
-          const addr = off ? "disabled" : `${s.host}:${e.port}`;
-          return `<div class="kv"><span>${e.name}</span>
-            <span class="${off ? "muted" : "port"}">${addr}</span></div>`;
-        }).join("")
-      : '<span class="muted">—</span>';
+    renderEndpoints(s);
+    LOADED_LANGS = (s.languages || []).map((l) => l.bcp47);
   } catch (e) { /* ignore */ }
 }
 
@@ -81,12 +74,42 @@ function fmtUptime(s) {
   return h ? `${h}h ${m}m` : `${m}m`;
 }
 
+// Endpoints: the HTTP row reflects the REAL address you're on (the browser
+// knows it). Wyoming/timing only know their in-container bind port — Docker
+// may publish them on a different host port, so we label them honestly.
+function renderEndpoints(s) {
+  const eps = s.endpoints || [];
+  const browserHost = window.location.host;       // e.g. spark:11201 (real)
+  const rows = eps.map((e) => {
+    const off = e.port === "off";
+    const isHttp = e.name.indexOf("HTTP") !== -1;
+    if (off) {
+      return `<div class="kv"><span>${e.name}</span><span class="muted">disabled</span></div>`;
+    }
+    if (isHttp) {
+      return `<div class="kv"><span>${e.name}</span><span class="port">${browserHost}</span></div>`;
+    }
+    // Wyoming / timing: in-container port; host mapping may differ.
+    return `<div class="kv"><span>${e.name}</span>
+      <span class="port">container :${e.port}</span></div>`;
+  });
+  rows.push('<p class="field-help">HTTP shows the address you\'re connected on. ' +
+    'Wyoming/timing show the in-container port — if you remapped ports in Docker ' +
+    '(e.g. <code>11200:10200</code>), use your host port, not the container port.</p>');
+  document.getElementById("endpoints-box").innerHTML = rows.join("");
+}
+
+let LOADED_LANGS = [];
+let VOICE_NAMES = [];
+
 // ── voices ──────────────────────────────────────────────────────────────────
 async function refreshVoices() {
   const r = await api("/v1/audio/voices");
   if (!r.ok) return;
   const data = await r.json();
   const voices = data.voices || [];
+  VOICE_NAMES = voices.map((v) => v.name);
+  if (typeof validateGenerate === "function") validateGenerate();
   document.getElementById("voice-count").textContent = `(${voices.length})`;
   // populate test-voice + voice list
   const sel = document.getElementById("test-voice");
@@ -152,22 +175,75 @@ async function uploadBlob(blob, filename, name) {
   }, 3000);
 }
 
-// drag & drop + file picker
+// ── gated voice creation: sample + unique name + Generate ──────────────────
+let SELECTED_BLOB = null;       // File or Blob
+let SELECTED_FILENAME = "";     // filename to send
+
+function nameOk(s) {
+  return s && !s.startsWith(".") && s.indexOf("..") === -1 &&
+    /^[A-Za-z0-9_.-]+$/.test(s);
+}
+
+function setSample(blob, filename, label) {
+  SELECTED_BLOB = blob;
+  SELECTED_FILENAME = filename;
+  document.getElementById("selected-file").textContent = label;
+  document.getElementById("selected-file").classList.remove("muted");
+  validateGenerate();
+}
+
+function validateGenerate() {
+  const name = document.getElementById("upload-name").value.trim();
+  const btn = document.getElementById("generate-btn");
+  const hint = document.getElementById("name-hint");
+  let ok = true, msg = "";
+  if (!SELECTED_BLOB) { ok = false; msg = "Pick or record an audio sample first."; }
+  else if (!name) { ok = false; msg = "Enter a voice name."; }
+  else if (!nameOk(name)) { ok = false; msg = "Allowed: letters, digits, _ - . (no leading dot)."; }
+  else if (VOICE_NAMES.includes(name)) { ok = false; msg = `"${name}" already exists — pick another name.`; }
+  else { msg = `Ready to generate "${name}".`; }
+  btn.disabled = !ok;
+  hint.textContent = msg;
+  hint.style.color = ok ? "var(--ok)" : "var(--muted)";
+}
+
+document.getElementById("upload-name").addEventListener("input", validateGenerate);
+
 const dz = document.getElementById("dropzone");
 const fileInput = document.getElementById("file-input");
 dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("dragover"); };
 dz.ondragleave = () => dz.classList.remove("dragover");
 dz.ondrop = (e) => {
   e.preventDefault(); dz.classList.remove("dragover");
-  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  const f = e.dataTransfer.files[0];
+  if (f) {
+    setSample(f, f.name, f.name);
+    // pre-fill the name from the filename stem if the field is empty
+    const nm = document.getElementById("upload-name");
+    if (!nm.value.trim()) { nm.value = f.name.replace(/\.[^.]+$/, ""); validateGenerate(); }
+  }
 };
-fileInput.onchange = () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); };
-function handleFile(f) {
-  const name = document.getElementById("upload-name").value.trim();
-  uploadBlob(f, f.name, name);
-}
+fileInput.onchange = () => {
+  const f = fileInput.files[0];
+  if (f) {
+    setSample(f, f.name, f.name);
+    const nm = document.getElementById("upload-name");
+    if (!nm.value.trim()) { nm.value = f.name.replace(/\.[^.]+$/, ""); validateGenerate(); }
+  }
+};
 
-// mic recording
+document.getElementById("generate-btn").onclick = () => {
+  if (!SELECTED_BLOB) return;
+  const name = document.getElementById("upload-name").value.trim();
+  uploadBlob(SELECTED_BLOB, SELECTED_FILENAME, name);
+  // reset selection so it can't be double-submitted
+  SELECTED_BLOB = null; SELECTED_FILENAME = "";
+  document.getElementById("selected-file").textContent = "— none yet —";
+  document.getElementById("selected-file").classList.add("muted");
+  document.getElementById("generate-btn").disabled = true;
+};
+
+// mic recording → sets the sample (does NOT auto-upload; user clicks Generate)
 let mediaRecorder = null, chunks = [];
 const micBtn = document.getElementById("mic-btn");
 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia ||
@@ -175,10 +251,7 @@ if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia ||
   document.getElementById("mic-hint").hidden = false;
 }
 micBtn.onclick = async () => {
-  if (mediaRecorder && mediaRecorder.state === "recording") {
-    mediaRecorder.stop();
-    return;
-  }
+  if (mediaRecorder && mediaRecorder.state === "recording") { mediaRecorder.stop(); return; }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     chunks = [];
@@ -187,11 +260,10 @@ micBtn.onclick = async () => {
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach((t) => t.stop());
       const blob = new Blob(chunks, { type: "audio/webm" });
-      const name = document.getElementById("upload-name").value.trim() || "myvoice";
-      uploadBlob(blob, name + ".webm", name);
+      setSample(blob, "recording.webm", "microphone recording");
       micBtn.classList.remove("recording");
       micBtn.textContent = "● Record from mic";
-      document.getElementById("mic-status").textContent = "Recorded — uploading.";
+      document.getElementById("mic-status").textContent = "Recorded — now name it and click Generate.";
     };
     mediaRecorder.start();
     micBtn.classList.add("recording");
@@ -224,11 +296,19 @@ document.getElementById("test-btn").onclick = async () => {
 };
 
 // ── settings ────────────────────────────────────────────────────────────────
-let VOICE_NAMES = [];
-
 function settingField(key, c) {
   const val = c.value == null ? "" : String(c.value);
   const ph = c.placeholder ? ` placeholder="${c.placeholder}"` : "";
+  // Languages: render as checkboxes for the available checkpoints so it's
+  // clear how to enable multiple languages.
+  if (key === "POCKET_TTS_LANGUAGES") {
+    const sel = val.split(",").map((x) => x.trim()).filter(Boolean);
+    const opts = (c.options && c.options.length) ? c.options : sel;
+    return `<div class="lang-grid" data-key="${key}">` +
+      opts.map((o) => `<label class="lang-opt">
+        <input type="checkbox" value="${o}" ${sel.includes(o) ? "checked" : ""} /> ${o}
+      </label>`).join("") + `</div>`;
+  }
   if (c.type === "bool") {
     const on = ["1", "true", "yes", ""].includes(val.toLowerCase()) && val !== "0" && val.toLowerCase() !== "false";
     return `<select data-key="${key}">
@@ -265,19 +345,33 @@ async function refreshSettings() {
   const cfg = (await r.json()).config;
   const form = document.getElementById("settings-form");
   form.innerHTML = "";
+  const oneLang = LOADED_LANGS.length === 1;
   Object.keys(cfg).forEach((key) => {
     if (key === "HF_TOKEN") return; // handled in its own card
     const c = cfg[key];
     const badge = c.restart_required ? '<span class="badge">restart</span>' : "";
+    let help = c.help || "";
+    // Contextual hint: auto language-ID does nothing with a single language.
+    if (key === "POCKET_TTS_AUTO_LID" && oneLang) {
+      help += ' <b>Only one language is loaded</b>, so language detection has ' +
+        'no effect — every request uses that language. Load more languages above ' +
+        'to make auto-detection meaningful.';
+    }
     const row = document.createElement("div");
     row.className = "setting-block";
     row.innerHTML = `<div class="setting-row">
         <label>${key}${badge}</label>
         ${settingField(key, c)}
       </div>
-      ${c.help ? `<p class="field-help">${c.help}</p>` : ""}`;
+      ${help ? `<p class="field-help">${help}</p>` : ""}`;
     form.appendChild(row);
   });
+  // populate the normalize-preview language dropdown from loaded languages
+  const nl = document.getElementById("norm-lang");
+  if (nl) {
+    const langs = LOADED_LANGS.length ? LOADED_LANGS : ["de", "en", "fr"];
+    nl.innerHTML = langs.map((l) => `<option>${l}</option>`).join("");
+  }
 }
 
 document.getElementById("settings-save").onclick = () => saveSettings(false);
@@ -285,8 +379,16 @@ document.getElementById("restart-btn").onclick = () => saveSettings(true);
 
 async function saveSettings(restart) {
   const updates = {};
-  document.querySelectorAll("#settings-form [data-key]").forEach((i) => {
-    updates[i.dataset.key] = i.value.trim();
+  document.querySelectorAll("#settings-form [data-key]").forEach((el) => {
+    const key = el.dataset.key;
+    if (el.classList.contains("lang-grid")) {
+      // collect checked language checkboxes into a comma list
+      const sel = Array.from(el.querySelectorAll("input[type=checkbox]:checked"))
+        .map((cb) => cb.value);
+      updates[key] = sel.join(",");
+    } else {
+      updates[key] = el.value.trim();
+    }
   });
   const st = document.getElementById("settings-status");
   st.textContent = "Saving…";
@@ -327,6 +429,23 @@ document.getElementById("hf-save").onclick = async () => {
   });
   st.textContent = r.ok ? "Token saved. Next voice you add will use it." : "Error.";
   document.getElementById("hf-token").value = "";
+};
+
+// ── text normalization preview ───────────────────────────────────────────────
+document.getElementById("norm-btn").onclick = async () => {
+  const input = document.getElementById("norm-input").value;
+  const language = document.getElementById("norm-lang").value;
+  const out = document.getElementById("norm-output");
+  out.textContent = "…";
+  try {
+    const r = await api("/v1/text/normalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input, language }),
+    });
+    const j = await r.json();
+    out.textContent = r.ok ? j.normalized : ("Error " + r.status);
+  } catch (e) { out.textContent = "Request failed."; }
 };
 
 // ── init ────────────────────────────────────────────────────────────────────

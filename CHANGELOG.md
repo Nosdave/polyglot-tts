@@ -4,13 +4,35 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Version display was stuck at 0.5.0.** `__version__` is now read from
+  the installed package metadata (single source of truth = pyproject), so
+  the UI and `/health` report the real version. pyproject bumped to 0.6.3.
+
+### Added
+
+- `POST /v1/text/normalize` — preview the text-normalization pipeline
+  (numbers, units, dates, German ordinals, Markdown strip) for a given
+  text + language. Surfaced in the web UI as a live preview panel.
+
 ### Improved (web UI)
 
-- The dashboard now shows the **active endpoints and ports** (Wyoming,
-  OpenAI-Speech HTTP, timing) with their bind address, or "disabled" when
-  a port is turned off.
-- Static assets (`app.js`, `style.css`) are cache-busted with a version
-  query so UI updates reach the browser without a manual hard-refresh.
+- **Endpoints/ports on the dashboard now reflect reality.** The HTTP row
+  shows the actual address you're connected on (the browser knows it);
+  Wyoming/timing show their in-container bind port with an explicit note
+  that a remapped Docker host port (e.g. `11200:10200`) is what you
+  actually connect to.
+- **Gated voice creation.** Adding a voice is now an explicit 3-step flow:
+  pick/record a sample → enter a name that doesn't already exist (validated
+  live) → click **Generate voice** (enabled only when both are satisfied).
+  No more accidental uploads with an auto-filename. Mic recordings set the
+  sample instead of uploading immediately.
+- **Languages are checkboxes**, making multi-language selection obvious.
+- **Auto language-ID shows a hint** when only one language is loaded
+  (detection has no effect with a single language).
+- Static assets are cache-busted with a version query so UI updates reach
+  the browser without a manual hard-refresh.
 
 ## [0.6.2] — 2026-06-01
 
