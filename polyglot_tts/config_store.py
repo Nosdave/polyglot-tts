@@ -50,6 +50,55 @@ RESTART_REQUIRED_KEYS: set[str] = {
     "POCKET_TTS_WARMUP",
 }
 
+# Per-field UI metadata: a short help text, an input type, and (optionally)
+# select options. Drives the settings form rendering.
+FIELD_META: dict[str, dict] = {
+    "POCKET_TTS_LANGUAGES": {
+        "type": "text",
+        "help": "Comma-separated language checkpoints to load. Each adds ~1.3 GB RAM.",
+        "placeholder": "english_2026-04,german_24l,french_24l",
+        "options": [
+            "english_2026-04", "german_24l", "french_24l",
+            "italian_24l", "spanish_24l", "portuguese_24l",
+        ],
+    },
+    "POCKET_TTS_VOICE": {
+        "type": "voice-select",
+        "help": "Default voice when a request doesn't specify one.",
+        "placeholder": "eve",
+    },
+    "POCKET_TTS_DEVICE": {
+        "type": "select",
+        "help": "auto picks CUDA if a GPU is visible, else CPU.",
+        "options": ["auto", "cpu", "cuda"],
+    },
+    "POCKET_TTS_AUTO_LID": {
+        "type": "bool",
+        "help": "Detect the language of each request automatically (Lingua).",
+    },
+    "POCKET_TTS_TEXT_NORM": {
+        "type": "bool",
+        "help": "Expand numbers, units, dates, ordinals, and strip Markdown before synthesis.",
+    },
+    "POCKET_TTS_LAZY_LOAD": {
+        "type": "bool",
+        "help": "(Not yet implemented) load a missing language on first use.",
+    },
+    "POCKET_TTS_MIN_SYNTH_CHARS": {
+        "type": "number",
+        "help": "Streaming first-flush threshold. Lower = faster first audio, less natural prosody.",
+        "placeholder": "30",
+    },
+    "POCKET_TTS_WARMUP": {
+        "type": "bool",
+        "help": "Run a short synth per language at startup to warm CUDA kernels.",
+    },
+    "HF_TOKEN": {
+        "type": "secret",
+        "help": "Only needed for voice cloning (gated Kyutai model). Stored, never shown.",
+    },
+}
+
 _LOCK = threading.Lock()
 
 
@@ -127,16 +176,18 @@ def effective_config() -> dict:
     """
     out = {}
     for k in sorted(EDITABLE_KEYS):
+        meta = FIELD_META.get(k, {})
+        common = {
+            "restart_required": k in RESTART_REQUIRED_KEYS,
+            "type": meta.get("type", "text"),
+            "help": meta.get("help", ""),
+            "placeholder": meta.get("placeholder", ""),
+            "options": meta.get("options", []),
+        }
         if k == "HF_TOKEN":
-            out[k] = {
-                "value": bool(os.environ.get("HF_TOKEN")),
-                "is_secret": True,
-                "restart_required": False,
-            }
+            out[k] = {"value": bool(os.environ.get("HF_TOKEN")),
+                      "is_secret": True, **common}
         else:
-            out[k] = {
-                "value": os.environ.get(k, ""),
-                "is_secret": False,
-                "restart_required": k in RESTART_REQUIRED_KEYS,
-            }
+            out[k] = {"value": os.environ.get(k, ""),
+                      "is_secret": False, **common}
     return out

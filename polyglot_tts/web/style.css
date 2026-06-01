@@ -108,7 +108,15 @@ button.recording { background: var(--danger); animation: pulse 1s infinite; }
 .voice-item button { padding: 4px 10px; font-size: 0.8rem; }
 .kv { display: flex; justify-content: space-between; padding: 3px 0; }
 .kv span:first-child { color: var(--muted); }
-.setting-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
-.setting-row label { flex: 0 0 230px; font-size: 0.9rem; }
+.setting-block { margin: 14px 0; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.setting-block:last-child { border-bottom: none; }
+.setting-row { display: flex; align-items: center; gap: 10px; }
+.setting-row label { flex: 0 0 230px; font-size: 0.9rem; font-family: ui-monospace, monospace; }
+.field-help { margin: 4px 0 0 240px; color: var(--muted); font-size: 0.82rem; }
+@media (max-width: 640px) {
+  .setting-row { flex-direction: column; align-items: stretch; }
+  .setting-row label { flex: none; }
+  .field-help { margin-left: 0; }
+}
 audio { width: 100%; margin-top: 10px; }
 code { background: #0d1117; padding: 1px 5px; border-radius: 4px; }

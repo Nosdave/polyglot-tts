@@ -205,6 +205,71 @@ _NUMBER_PATTERN: Final[re.Pattern] = re.compile(
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# German ordinals — "20." → "zwanzigste(n)" instead of "zwanzig" + sentence end
+# ─────────────────────────────────────────────────────────────────────────
+#
+# "<number>." is ambiguous in German: it's an ordinal ("am 20. Juni" =
+# "am zwanzigsten Juni") OR a cardinal at a sentence end ("Es waren 20.").
+# We can't fully disambiguate without parsing, so we use two high-precision
+# signals and leave everything else as a cardinal:
+#   (a) an article / preposition immediately before  ("der 1.", "am 20.")
+#   (b) a month name or "Jahrhundert" immediately after ("20. Juni")
+# Dative-triggering prepositions get the "-n" ending ("am zwanzigsten").
+
+_DE_MONTHS: Final[str] = (
+    "Januar|Februar|März|Maerz|April|Mai|Juni|Juli|August|"
+    "September|Oktober|November|Dezember"
+)
+# Words before the number that signal an ordinal. Dative ones take "-n".
+_DE_DATIVE_BEFORE: Final[frozenset[str]] = frozenset({
+    "am", "im", "zum", "zur", "vom", "beim", "dem", "den", "seit",
+    "mit", "nach", "bei", "von", "zu", "ab",
+})
+_DE_NOMINATIVE_BEFORE: Final[frozenset[str]] = frozenset({
+    "der", "die", "das", "des", "ein", "eine", "einen", "jeder", "jede",
+})
+
+# (a) preposition/article + "<num>."
+_DE_ORD_BEFORE: Final[re.Pattern] = re.compile(
+    r"\b(" + "|".join(sorted(_DE_DATIVE_BEFORE | _DE_NOMINATIVE_BEFORE)) + r")\s+(\d{1,4})\.",
+    re.IGNORECASE,
+)
+# (b) "<num>." + month / Jahrhundert
+_DE_ORD_AFTER: Final[re.Pattern] = re.compile(
+    r"\b(\d{1,4})\.\s+(" + _DE_MONTHS + r"|Jahrhunderts?|Jahrtausends?)",
+)
+
+
+def _german_ordinals(text: str, n2w) -> str:
+    """Convert clear German ordinals "<num>." → ordinal words. High precision."""
+    def _ord(n: int, dative: bool) -> str | None:
+        try:
+            base = n2w(n, lang="de", to="ordinal")  # e.g. "zwanzigste"
+        except Exception:  # noqa: BLE001
+            return None
+        if dative and base.endswith("e"):
+            return base + "n"  # zwanzigste → zwanzigsten
+        return base
+
+    def _sub_before(m: re.Match) -> str:
+        word, num = m.group(1), int(m.group(2))
+        dative = word.lower() in _DE_DATIVE_BEFORE
+        o = _ord(num, dative)
+        return f"{word} {o}" if o else m.group(0)
+
+    def _sub_after(m: re.Match) -> str:
+        num, follow = int(m.group(1)), m.group(2)
+        # Dates ("20. Juni") and centuries read most naturally dative-ish;
+        # use the "-n" form which is correct after the common "am/im".
+        o = _ord(num, dative=True)
+        return f"{o} {follow}" if o else m.group(0)
+
+    text = _DE_ORD_BEFORE.sub(_sub_before, text)
+    text = _DE_ORD_AFTER.sub(_sub_after, text)
+    return text
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Main entry point
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -282,6 +347,11 @@ def normalize(text: str, lang: str = "de") -> str:
                 return m.group(0)
             return f"{word} {_UNITS[lang][unit_key]}"
         out = unit_pat.sub(_expand_unit, out)
+
+    # 5b: German ordinals ("am 20. Juni" → "am zwanzigsten Juni") BEFORE the
+    # standalone-number step turns "20" into the cardinal "zwanzig".
+    if n2w and lang == "de":
+        out = _german_ordinals(out, n2w)
 
     # 6: Standalone numbers (not attached to a known unit)
     if n2w:

@@ -97,22 +97,50 @@ async function refreshVoices() {
   });
 }
 
+async function currentVoiceNames() {
+  try {
+    const r = await api("/v1/audio/voices");
+    if (!r.ok) return [];
+    return ((await r.json()).voices || []).map((v) => v.name);
+  } catch (e) { return []; }
+}
+
 async function uploadBlob(blob, filename, name) {
+  const status = document.getElementById("upload-status");
+  const before = await currentVoiceNames();
   const fd = new FormData();
   fd.append("file", blob, filename);
   if (name) fd.append("name", name);
-  const status = document.getElementById("upload-status");
-  status.textContent = "Uploading…";
+  status.innerHTML = '⏳ Uploading…';
+  let j;
   try {
     const r = await api("/v1/audio/voices", { method: "POST", body: fd });
-    const j = await r.json();
-    if (r.ok) {
-      status.textContent = `Queued "${j.name}" — embedding starts shortly. Refreshing…`;
-      setTimeout(refreshVoices, 4000);
+    j = await r.json();
+    if (!r.ok) { status.innerHTML = '❌ Error: ' + (j.detail || r.status); return; }
+  } catch (e) { status.innerHTML = '❌ Upload failed.'; return; }
+
+  const want = j.name;
+  status.innerHTML = `⏳ Embedding "<b>${want}</b>"… this can take ~30 s (longer on CPU).`;
+  // Poll until the voice appears (or a timeout).
+  let waited = 0;
+  const poll = setInterval(async () => {
+    waited += 3;
+    const now = await currentVoiceNames();
+    if (now.includes(want)) {
+      clearInterval(poll);
+      status.innerHTML = `✅ Voice "<b>${want}</b>" is ready.`;
+      refreshVoices();
+      document.getElementById("upload-name").value = "";
+    } else if (waited >= 90) {
+      clearInterval(poll);
+      status.innerHTML = `⚠️ "<b>${want}</b>" didn't appear after 90 s. ` +
+        `Check the server log — the file may be too short, noisy, or (for cloning) ` +
+        `you may need an HF token in Settings.`;
+      refreshVoices();
     } else {
-      status.textContent = "Error: " + (j.detail || r.status);
+      status.innerHTML = `⏳ Embedding "<b>${want}</b>"… (${waited}s)`;
     }
-  } catch (e) { status.textContent = "Upload failed."; }
+  }, 3000);
 }
 
 // drag & drop + file picker
@@ -187,7 +215,42 @@ document.getElementById("test-btn").onclick = async () => {
 };
 
 // ── settings ────────────────────────────────────────────────────────────────
+let VOICE_NAMES = [];
+
+function settingField(key, c) {
+  const val = c.value == null ? "" : String(c.value);
+  const ph = c.placeholder ? ` placeholder="${c.placeholder}"` : "";
+  if (c.type === "bool") {
+    const on = ["1", "true", "yes", ""].includes(val.toLowerCase()) && val !== "0" && val.toLowerCase() !== "false";
+    return `<select data-key="${key}">
+      <option value="true" ${on ? "selected" : ""}>true</option>
+      <option value="false" ${!on ? "selected" : ""}>false</option></select>`;
+  }
+  if (c.type === "select") {
+    return `<select data-key="${key}">` +
+      c.options.map((o) => `<option ${o === val ? "selected" : ""}>${o}</option>`).join("") +
+      `</select>`;
+  }
+  if (c.type === "voice-select") {
+    const opts = VOICE_NAMES.length ? VOICE_NAMES : [val].filter(Boolean);
+    return `<select data-key="${key}">` +
+      opts.map((o) => `<option ${o === val ? "selected" : ""}>${o}</option>`).join("") +
+      `</select>`;
+  }
+  if (c.type === "number") {
+    return `<input type="number" data-key="${key}" value="${val}"${ph} />`;
+  }
+  // text — with a datalist of suggestions if options provided
+  if (c.options && c.options.length) {
+    const listId = "dl-" + key;
+    return `<input data-key="${key}" list="${listId}" value="${val}"${ph} />
+      <datalist id="${listId}">${c.options.map((o) => `<option value="${o}">`).join("")}</datalist>`;
+  }
+  return `<input data-key="${key}" value="${val}"${ph} />`;
+}
+
 async function refreshSettings() {
+  VOICE_NAMES = await currentVoiceNames();
   const r = await api("/api/ui/config");
   if (!r.ok) return;
   const cfg = (await r.json()).config;
@@ -198,9 +261,12 @@ async function refreshSettings() {
     const c = cfg[key];
     const badge = c.restart_required ? '<span class="badge">restart</span>' : "";
     const row = document.createElement("div");
-    row.className = "setting-row";
-    row.innerHTML = `<label>${key}${badge}</label>
-      <input data-key="${key}" value="${c.value || ""}" />`;
+    row.className = "setting-block";
+    row.innerHTML = `<div class="setting-row">
+        <label>${key}${badge}</label>
+        ${settingField(key, c)}
+      </div>
+      ${c.help ? `<p class="field-help">${c.help}</p>` : ""}`;
     form.appendChild(row);
   });
 }

@@ -2,6 +2,31 @@
 
 All notable changes will be documented here. Semantic versioning.
 
+## [0.6.1] — 2026-06-01
+
+### Added
+
+- **German ordinals in text normalization.** "Der 20. Juni" now reads as
+  "der zwanzigste Juni" instead of "zwanzig" + a sentence break. Uses
+  high-precision signals (an article/preposition before, or a month /
+  "Jahrhundert" after) and applies dative declension ("am ersten Mai",
+  "im zwanzigsten Jahrhundert"). Bare sentence-ending numbers stay
+  cardinals ("Es waren 20." → "zwanzig"). German-only; other languages
+  unaffected. Tests in `tests/test_text_norm.py`.
+
+### Improved (web UI)
+
+- **Voice upload now shows progress.** After upload the UI polls until the
+  voice actually appears (embedding takes ~30 s, longer on CPU) and shows
+  "Embedding… (Ns)" → "✅ ready", or a clear timeout hint pointing at the
+  log / HF-token. Previously a single early refresh meant the new voice
+  often wasn't visible yet, so it looked like nothing happened.
+- **Settings fields now have help text and proper inputs.** Each setting
+  shows a one-line description; `POCKET_TTS_DEVICE` is a dropdown
+  (auto/cpu/cuda), booleans are true/false selects, the default voice is a
+  dropdown of loaded voices, and `POCKET_TTS_LANGUAGES` offers a
+  suggestion list of available checkpoints.
+
 ## [0.6.0] — 2026-06-01
 
 ### Added — built-in web UI
