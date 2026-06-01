@@ -77,6 +77,16 @@ class PolyglotCore:
             self.default_checkpoint.split("_")[0], "en"
         )
 
+        # Map each loaded language (bcp47) to the checkpoint actually loaded
+        # for it — built from `models`, NOT a hardcoded table. This makes the
+        # lighter variants work: if the user loaded "german" (fast) instead of
+        # "german_24l", "de" resolves to "german". First-loaded wins if two
+        # checkpoints share a language (the UI prevents that, but be safe).
+        self.bcp47_to_checkpoint: dict[str, str] = {}
+        for ckpt in models:
+            bcp = LANGUAGE_TO_BCP47.get(ckpt.split("_")[0], ckpt[:2])
+            self.bcp47_to_checkpoint.setdefault(bcp, ckpt)
+
         # Mutex guarding voice_states. File-watcher writes (add/remove),
         # endpoints read + on-demand-write. threading.RLock works from both
         # the watcher thread AND from asyncio paths via asyncio.to_thread.

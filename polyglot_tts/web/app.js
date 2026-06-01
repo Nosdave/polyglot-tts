@@ -309,7 +309,8 @@ function settingField(key, c) {
       : (c.options || sel).map((o) => ({ checkpoint: o, bcp47: o.slice(0, 2), quality: "" }));
     return `<div class="lang-grid" data-key="${key}">` +
       cps.map((cp) => `<label class="lang-opt" title="${cp.quality}">
-        <input type="checkbox" value="${cp.checkpoint}" ${sel.includes(cp.checkpoint) ? "checked" : ""} />
+        <input type="checkbox" value="${cp.checkpoint}" data-bcp="${cp.bcp47}"
+          ${sel.includes(cp.checkpoint) ? "checked" : ""} />
         <span>${cp.checkpoint}</span><small>${cp.bcp47} · ${cp.quality}</small>
       </label>`).join("") + `</div>`;
   }
@@ -378,6 +379,19 @@ async function refreshSettings() {
       ${help ? `<p class="field-help">${help}</p>` : ""}`;
     form.appendChild(row);
   });
+  // One checkpoint per language: checking a variant unchecks the others of
+  // the same language (loading two for one language wastes RAM and only one
+  // is ever used).
+  form.querySelectorAll('.lang-grid input[type=checkbox]').forEach((cb) => {
+    cb.addEventListener("change", () => {
+      if (!cb.checked) return;
+      const bcp = cb.dataset.bcp;
+      cb.closest(".lang-grid")
+        .querySelectorAll(`input[data-bcp="${bcp}"]`)
+        .forEach((other) => { if (other !== cb) other.checked = false; });
+    });
+  });
+
   // populate the normalize-preview language dropdown from loaded languages
   const nl = document.getElementById("norm-lang");
   if (nl) {

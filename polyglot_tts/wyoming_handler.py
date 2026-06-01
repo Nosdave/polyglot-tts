@@ -201,6 +201,12 @@ class PocketTTSEventHandler(AsyncEventHandler):
         self.advertised_bcp47 = advertised_bcp47
         self.default_checkpoint = next(iter(models.keys()))
         self.default_bcp47 = LANGUAGE_TO_BCP47.get(self.default_checkpoint.split("_")[0], "en")
+        # bcp47 -> loaded checkpoint, from the actually-loaded models (handles
+        # light variants like "german"); first-loaded wins per language.
+        self._bcp47_to_checkpoint: dict[str, str] = {}
+        for ckpt in models:
+            bcp = LANGUAGE_TO_BCP47.get(ckpt.split("_")[0], ckpt[:2])
+            self._bcp47_to_checkpoint.setdefault(bcp, ckpt)
 
         # ── streaming-session state (per connection) ──
         self._stream_active: bool = False
@@ -253,21 +259,24 @@ class PocketTTSEventHandler(AsyncEventHandler):
         MIN_LID_CHARS = 20
         auto_lid_enabled = os.environ.get("POCKET_TTS_AUTO_LID", "true").lower() in ("1", "true", "yes")
 
+        # Resolve via the loaded-models map (built from what's actually
+        # loaded — handles light variants like "german"), not a hardcoded table.
+        bcp_map = self._bcp47_to_checkpoint
+
         # 1. Explicit hint from HA Pipeline (preferred when actually provided)
         if requested_bcp47:
             bcp47 = requested_bcp47.split("-")[0].lower()
-            if bcp47 in self.advertised_bcp47:
-                ckpt = BCP47_TO_CHECKPOINT.get(bcp47)
-                if ckpt and ckpt in self.models:
-                    _LOGGER.debug("Lang from hint: %s", bcp47)
-                    return bcp47, ckpt
+            ckpt = bcp_map.get(bcp47) if bcp_map else None
+            if ckpt:
+                _LOGGER.debug("Lang from hint: %s", bcp47)
+                return bcp47, ckpt
 
         # 2. Lingua LID — on-the-fly multilingual (ElevenLabs-style)
         text_len = len((text or "").strip())
         if auto_lid_enabled and text_len >= MIN_LID_CHARS:
             bcp47 = _detect_language(text, self.advertised_bcp47, self.default_bcp47)
-            ckpt = BCP47_TO_CHECKPOINT.get(bcp47)
-            if ckpt and ckpt in self.models:
+            ckpt = bcp_map.get(bcp47) if bcp_map else None
+            if ckpt:
                 _LOGGER.info("Lang via Lingua-LID (text_len=%d): %s", text_len, bcp47)
                 return bcp47, ckpt
 

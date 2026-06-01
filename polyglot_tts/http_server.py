@@ -111,17 +111,18 @@ def _resolve_checkpoint(core: PolyglotCore, lang_hint: str | None,
                         text: str) -> tuple[str, str]:
     """Pick (bcp47, checkpoint). Mirrors handler._resolve_checkpoint."""
     MIN_LID_CHARS = 20
+    # Resolve via the loaded-models map (handles light variants like "german"),
+    # not a hardcoded table.
     if lang_hint:
         bcp47 = lang_hint.split("-")[0].lower()
-        if bcp47 in core.advertised_bcp47:
-            ckpt = BCP47_TO_CHECKPOINT.get(bcp47)
-            if ckpt and ckpt in core.models:
-                return bcp47, ckpt
+        ckpt = core.bcp47_to_checkpoint.get(bcp47)
+        if ckpt:
+            return bcp47, ckpt
     text_len = len((text or "").strip())
     if auto_lid_enabled() and text_len >= MIN_LID_CHARS:
         bcp47 = _detect_language(text, core.advertised_bcp47, core.default_bcp47)
-        ckpt = BCP47_TO_CHECKPOINT.get(bcp47)
-        if ckpt and ckpt in core.models:
+        ckpt = core.bcp47_to_checkpoint.get(bcp47)
+        if ckpt:
             return bcp47, ckpt
     return core.default_bcp47, core.default_checkpoint
 
