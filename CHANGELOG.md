@@ -4,6 +4,16 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **Sampling temperature now applies live and per request.** `model.temp` is
+  read at each decode step, so it never needed a restart. Saving
+  `POCKET_TTS_TEMP` in the UI/config now takes effect on the next synthesis
+  (no longer restart-required), and `POST /v1/audio/speech` accepts a
+  `temperature` field to override the global value for a single call (clamped
+  to `0.1`–`1.5`, restored afterwards under the per-model lock). Corrects the
+  0.6.3 claim that temperature was baked in at load.
+
 ## [0.6.3] — 2026-06-02
 
 ### Added

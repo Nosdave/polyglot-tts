@@ -53,6 +53,29 @@ SAMPLE_RATE = 24000
 SAMPLE_WIDTH = 2
 CHANNELS = 1
 
+# Sampling temperature bounds. pocket-tts stores `temp` as a plain mutable
+# attribute on the model and reads it live at every decode step, so it can be
+# changed at runtime (globally or per request) without reloading the model.
+TEMP_MIN, TEMP_MAX, TEMP_DEFAULT = 0.1, 1.5, 0.7
+
+
+def clamp_temperature(raw, default: float = TEMP_DEFAULT) -> float:
+    """Parse + clamp a temperature into [TEMP_MIN, TEMP_MAX].
+
+    Accepts a float or a string (incl. comma decimals). Empty, unparseable, or
+    out-of-range input returns `default`. Used by the env loader and the live
+    config path; the per-request HTTP path clamps to the bounds directly.
+    """
+    if raw is None or raw == "":
+        return default
+    try:
+        val = float(str(raw).replace(",", "."))
+    except (ValueError, TypeError):
+        return default
+    if not TEMP_MIN <= val <= TEMP_MAX:
+        return default
+    return val
+
 
 class PolyglotCore:
     """Shared TTS-engine state. Built once, used by every endpoint."""
@@ -111,6 +134,20 @@ class PolyglotCore:
                 lock = threading.Lock()
                 self._model_locks[key] = lock
         return lock
+
+    def set_temperature(self, temp: float) -> None:
+        """Set the sampling temperature on every loaded model, live.
+
+        `model.temp` is read at each decode step, so this takes effect on the
+        next synthesis — no reload. Set under each model's lock so it can't race
+        with an in-flight generation. This is the global value; the per-request
+        HTTP path overrides + restores it around a single synthesis.
+        """
+        for model in self.models.values():
+            with self.get_model_lock(model):
+                model.temp = temp
+        _LOGGER.info("Sampling temperature set to %.2f on %d model(s)",
+                     temp, len(self.models))
 
     # ── Voice-state access ────────────────────────────────────────────────
 

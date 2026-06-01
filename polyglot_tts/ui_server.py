@@ -123,6 +123,10 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
         config_store.save_settings(updates)
         if new_default:
             core.default_voice = str(new_default)
+        # Sampling temperature applies live (model.temp is read per decode step).
+        if "POCKET_TTS_TEMP" in updates:
+            from .core import clamp_temperature
+            core.set_temperature(clamp_temperature(updates["POCKET_TTS_TEMP"]))
         # Report which changed keys need a restart.
         restart_keys = sorted(
             k for k in updates

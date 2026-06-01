@@ -68,25 +68,14 @@ def _int_env(name: str, default: int | None) -> int | None:
 
 
 def _resolve_temp() -> float:
-    """Sampling temperature for synthesis, read once at load time.
+    """Initial sampling temperature from POCKET_TTS_TEMP, used at model load.
 
-    Global (applies to every loaded language/voice) and only consumed here, at
-    model construction — pocket-tts bakes it into the model, so it can't change
-    per request or without a restart. Clamped to a sane [0.1, 1.5] range; out-of
-    range or unparseable values fall back to the pocket-tts default of 0.7.
+    This only sets the starting value — `model.temp` is read live at each decode
+    step, so it can be changed afterwards globally (UI/config) or per request
+    (HTTP), without a reload. Clamped to [0.1, 1.5]; bad/empty input → 0.7.
     """
-    raw = os.environ.get("POCKET_TTS_TEMP", "").strip()
-    if not raw:
-        return 0.7
-    try:
-        val = float(raw.replace(",", "."))
-    except ValueError:
-        _LOGGER.warning("POCKET_TTS_TEMP=%r not a number — using 0.7", raw)
-        return 0.7
-    if not 0.1 <= val <= 1.5:
-        _LOGGER.warning("POCKET_TTS_TEMP=%s out of [0.1, 1.5] — using 0.7", val)
-        return 0.7
-    return val
+    from .core import clamp_temperature
+    return clamp_temperature(os.environ.get("POCKET_TTS_TEMP", "").strip() or None)
 
 
 def _load_models(checkpoints: list[str], device_pref: str) -> dict:

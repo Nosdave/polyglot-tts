@@ -75,6 +75,9 @@ class SpeechRequest(BaseModel):
     response_format: str = Field(default="mp3")
     # Polyglot-specific extension: explicit language hint
     language: str | None = None
+    # Per-request sampling temperature (0.1–1.5). Overrides the global value for
+    # this one call only; clamped to bounds. Omit to use the configured global.
+    temperature: float | None = None
     # OpenAI fields we accept but currently ignore (kept for client compat)
     speed: float | None = None
     instructions: str | None = None
@@ -128,7 +131,8 @@ def _resolve_checkpoint(core: PolyglotCore, lang_hint: str | None,
 
 
 def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
-                    lang_hint: str | None) -> tuple[np.ndarray, str]:
+                    lang_hint: str | None,
+                    temperature: float | None = None) -> tuple[np.ndarray, str]:
     """Run model inference end-to-end, return (float32 mono samples @ 24kHz, lang).
 
     Acquires the shared per-model lock around `generate_audio_stream` so two
@@ -166,14 +170,29 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
     _LOGGER.info("HTTP synth: voice=%s lang=%s ckpt=%s chars=%d",
                  voice, bcp47, ckpt, len(text_norm))
 
+    # Per-request temperature: override model.temp for this synthesis only,
+    # restore the global afterwards. Safe because we hold the model lock for the
+    # whole generation, so concurrent requests with different temps serialize.
+    from .core import TEMP_MAX, TEMP_MIN
+    override_temp = None
+    if temperature is not None:
+        override_temp = min(max(float(temperature), TEMP_MIN), TEMP_MAX)
+
     t0 = time.perf_counter()
     pcm_chunks: list[np.ndarray] = []
     model_lock = core.get_model_lock(model)
     with model_lock:
-        for frame in model.generate_audio_stream(state, text_norm):
-            if hasattr(frame, "cpu"):
-                frame = frame.cpu().numpy()
-            pcm_chunks.append(np.asarray(frame, dtype=np.float32).reshape(-1))
+        prev_temp = getattr(model, "temp", None)
+        if override_temp is not None:
+            model.temp = override_temp
+        try:
+            for frame in model.generate_audio_stream(state, text_norm):
+                if hasattr(frame, "cpu"):
+                    frame = frame.cpu().numpy()
+                pcm_chunks.append(np.asarray(frame, dtype=np.float32).reshape(-1))
+        finally:
+            if override_temp is not None and prev_temp is not None:
+                model.temp = prev_temp
     pcm = np.concatenate(pcm_chunks) if pcm_chunks else np.zeros(0, dtype=np.float32)
     synth_ms = int((time.perf_counter() - t0) * 1000)
     audio_ms = int(len(pcm) / SAMPLE_RATE * 1000)
@@ -347,7 +366,8 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
         # Run synthesis in a thread — model.generate is blocking.
         try:
             pcm, lang = await asyncio.to_thread(
-                _synthesize_pcm, core, voice, req.input, req.language
+                _synthesize_pcm, core, voice, req.input, req.language,
+                req.temperature,
             )
         except HTTPException:
             raise

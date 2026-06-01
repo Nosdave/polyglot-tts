@@ -56,7 +56,7 @@ which checkpoint to use per request.
 | `POCKET_TTS_AUTO_LID` | `true` | Enable Lingua-based per-sentence language detection. |
 | `POCKET_TTS_LAZY_LOAD` | `false` | **Declared but not yet implemented** — slated for 0.6.0. Today: all languages listed in `POCKET_TTS_LANGUAGES` are loaded eagerly at startup. |
 | `POCKET_TTS_MIN_SYNTH_CHARS` | `30` | First-flush threshold for streaming. Lower = faster first audio at the cost of less natural prosody. |
-| `POCKET_TTS_TEMP` | `0.7` | Sampling temperature (`0.1`–`1.5`). Higher = more expressive/varied but less stable; lower = flatter/more consistent. **Global** (all voices and languages) and **baked into the model at load** — read once at startup, so a change needs a restart. Not a per-request parameter. |
+| `POCKET_TTS_TEMP` | `0.7` | Sampling temperature (`0.1`–`1.5`). Higher = more expressive/varied but less stable; lower = flatter/more consistent. Sets the **global** value (all voices and languages). Applies **live** — `model.temp` is read at each decode step, so saving it via the UI/config takes effect on the next synthesis with no restart. Override per call with the `temperature` field on `POST /v1/audio/speech`. |
 | `POCKET_TTS_LOG_LEVEL` | `INFO` | Standard Python log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 
 ## Secrets / credentials

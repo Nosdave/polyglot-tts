@@ -49,7 +49,6 @@ RESTART_REQUIRED_KEYS: set[str] = {
     "POCKET_TTS_DEVICE",
     "POCKET_TTS_LAZY_LOAD",
     "POCKET_TTS_WARMUP",
-    "POCKET_TTS_TEMP",
 }
 
 # Per-field UI metadata: a short help text, an input type, and (optionally)
@@ -99,9 +98,9 @@ FIELD_META: dict[str, dict] = {
         "type": "number",
         "help": "Sampling temperature (0.1–1.5, default 0.7). Higher = more "
                 "expressive/varied but less stable; lower = flatter/more "
-                "consistent. GLOBAL — applies to every voice and language, not "
-                "per request. Baked into the model at load, so a change only "
-                "takes effect after a container restart.",
+                "consistent. This is the GLOBAL value and applies live — saving "
+                "it takes effect on the next synthesis, no restart. Override it "
+                "per call with the `temperature` field on POST /v1/audio/speech.",
         "placeholder": "0.7",
     },
     "HF_TOKEN": {
@@ -206,7 +205,8 @@ def save_settings(updates: dict) -> dict:
     if "HF_TOKEN" in updates and updates["HF_TOKEN"]:
         os.environ["HF_TOKEN"] = str(updates["HF_TOKEN"])
     for live_key in ("POCKET_TTS_VOICE", "POCKET_TTS_AUTO_LID",
-                     "POCKET_TTS_TEXT_NORM", "POCKET_TTS_MIN_SYNTH_CHARS"):
+                     "POCKET_TTS_TEXT_NORM", "POCKET_TTS_MIN_SYNTH_CHARS",
+                     "POCKET_TTS_TEMP"):
         if live_key in updates and updates[live_key] not in (None, ""):
             os.environ[live_key] = str(updates[live_key])
 
