@@ -52,3 +52,20 @@ def test_full_date():
     out = n("am 3. Dezember 2024")
     assert "dritten Dezember" in out
     assert "zweitausendvierundzwanzig" in out
+
+
+def test_numbers_use_the_requested_language_not_german():
+    # Regression: it/es used to fall back to German number-to-words.
+    it = normalize("Ho 20 mele.", lang="it")
+    assert "venti" in it and "zwanzig" not in it
+
+    es = normalize("Tengo 20 manzanas.", lang="es")
+    assert "veinte" in es and "zwanzig" not in es
+
+    pt = normalize("Tenho 20 maçãs.", lang="pt")
+    assert "vinte" in pt and "zwanzig" not in pt
+
+
+def test_units_localized_per_language():
+    assert "per cento" in normalize("50 % di umidità", lang="it")
+    assert "por ciento" in normalize("50 % de humedad", lang="es")
