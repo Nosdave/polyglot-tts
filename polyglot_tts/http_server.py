@@ -78,6 +78,9 @@ class SpeechRequest(BaseModel):
     # Per-request sampling temperature (0.1–1.5). Overrides the global value for
     # this one call only; clamped to bounds. Omit to use the configured global.
     temperature: float | None = None
+    # Per-request output gain (linear, 0.0–4.0). Overrides the global gain for
+    # this one call; clipped to [-1, 1] after scaling. Omit to use the global.
+    gain: float | None = None
     # OpenAI fields we accept but currently ignore (kept for client compat)
     speed: float | None = None
     instructions: str | None = None
@@ -132,7 +135,8 @@ def _resolve_checkpoint(core: PolyglotCore, lang_hint: str | None,
 
 def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
                     lang_hint: str | None,
-                    temperature: float | None = None) -> tuple[np.ndarray, str]:
+                    temperature: float | None = None,
+                    gain: float | None = None) -> tuple[np.ndarray, str]:
     """Run model inference end-to-end, return (float32 mono samples @ 24kHz, lang).
 
     Acquires the shared per-model lock around `generate_audio_stream` so two
@@ -194,6 +198,13 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
             if override_temp is not None and prev_temp is not None:
                 model.temp = prev_temp
     pcm = np.concatenate(pcm_chunks) if pcm_chunks else np.zeros(0, dtype=np.float32)
+
+    # Output gain: per-request override, else the live global. Scale + clip.
+    from .core import clamp_gain
+    eff_gain = clamp_gain(gain) if gain is not None else core.output_gain
+    if eff_gain != 1.0 and pcm.size:
+        pcm = np.clip(pcm * eff_gain, -1.0, 1.0).astype(np.float32)
+
     synth_ms = int((time.perf_counter() - t0) * 1000)
     audio_ms = int(len(pcm) / SAMPLE_RATE * 1000)
 
@@ -367,7 +378,7 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
         try:
             pcm, lang = await asyncio.to_thread(
                 _synthesize_pcm, core, voice, req.input, req.language,
-                req.temperature,
+                req.temperature, req.gain,
             )
         except HTTPException:
             raise

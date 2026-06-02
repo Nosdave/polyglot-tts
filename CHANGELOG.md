@@ -4,6 +4,18 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **Voice-sample loudness normalization on clone.** A new voice is loudness-
+  normalized (EBU R128 `loudnorm`) before encoding, so a quiet recording still
+  makes a strong, consistent voice prompt. On by default; toggle with
+  `POCKET_TTS_VOICE_NORMALIZE`. Best-effort — skipped cleanly if ffmpeg is
+  unavailable or the filter fails.
+- **Output volume control.** `POCKET_TTS_OUTPUT_GAIN` (0.0–4.0, default 1.0)
+  scales the generated audio, live, on both the Wyoming and HTTP paths (clipped
+  to full scale after scaling). `POST /v1/audio/speech` also accepts a per-call
+  `gain` field. Streaming-safe (applied per chunk).
+
 ### Build
 
 - **Image layers split so updates pull only a few MB, not gigabytes.** The app

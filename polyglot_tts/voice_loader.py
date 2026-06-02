@@ -72,16 +72,60 @@ def ensure_decodable(path: Path) -> tuple[Path, bool]:
     return tmp, True
 
 
-def encode_voice_file(path: Path, core) -> dict:
-    """Transcode if needed, then encode against all loaded models.
+def _normalize_enabled() -> bool:
+    return os.environ.get("POCKET_TTS_VOICE_NORMALIZE", "true").lower() in (
+        "1", "true", "yes",
+    )
 
-    Returns the per-language state dict (possibly empty on failure).
+
+def normalize_loudness(path: Path) -> tuple[Path, bool]:
+    """Loudness-normalize a voice sample to a consistent level via ffmpeg.
+
+    A quiet recording (a soft mic, a distant phone memo) makes a weak voice
+    prompt; an over-hot one clips. EBU R128 `loudnorm` pulls both toward a
+    common target so cloned voices are consistent regardless of how the sample
+    was captured. Output is 24 kHz mono WAV (what pocket-tts wants anyway).
+
+    Returns (path, is_temp). Best-effort: if disabled, ffmpeg is missing, or the
+    filter fails, the original `path` is returned unchanged (is_temp False).
     """
-    decodable, is_temp = ensure_decodable(path)
+    if not _normalize_enabled():
+        return path, False
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return path, False
+
+    fd, tmp_name = tempfile.mkstemp(prefix="polyglot_norm_", suffix=".wav")
+    os.close(fd)
+    tmp = Path(tmp_name)
     try:
-        return core.encode_voice(decodable)
+        subprocess.run(
+            [ffmpeg, "-y", "-i", str(path),
+             "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+             "-ar", "24000", "-ac", "1", str(tmp)],
+            check=True, capture_output=True,
+        )
+        return tmp, True
+    except subprocess.CalledProcessError as e:
+        tmp.unlink(missing_ok=True)
+        stderr = (e.stderr or b"").decode("utf-8", "replace")[-300:]
+        _LOGGER.warning("loudnorm failed for %s (%s) — using original level",
+                        path.name, stderr)
+        return path, False
+
+
+def encode_voice_file(path: Path, core) -> dict:
+    """Decode (transcode if needed), loudness-normalize, then encode against
+    every loaded model. Returns the per-language state dict (empty on failure).
+    """
+    decodable, dec_temp = ensure_decodable(path)
+    normalized, norm_temp = normalize_loudness(decodable)
+    try:
+        return core.encode_voice(normalized)
     finally:
-        if is_temp:
+        if norm_temp:
+            normalized.unlink(missing_ok=True)
+        if dec_temp:
             decodable.unlink(missing_ok=True)
 
 

@@ -77,6 +77,25 @@ def clamp_temperature(raw, default: float = TEMP_DEFAULT) -> float:
     return val
 
 
+# Output gain (linear multiplier applied to the generated audio before encoding).
+# 1.0 = unchanged, <1 quieter, >1 louder (clipped to [-1, 1] after scaling).
+GAIN_MIN, GAIN_MAX, GAIN_DEFAULT = 0.0, 4.0, 1.0
+
+
+def clamp_gain(raw, default: float = GAIN_DEFAULT) -> float:
+    """Parse + clamp an output gain into [GAIN_MIN, GAIN_MAX]. Bad/empty/out-of
+    range input returns `default`. Accepts float or string (comma decimals)."""
+    if raw is None or raw == "":
+        return default
+    try:
+        val = float(str(raw).replace(",", "."))
+    except (ValueError, TypeError):
+        return default
+    if not GAIN_MIN <= val <= GAIN_MAX:
+        return default
+    return val
+
+
 class PolyglotCore:
     """Shared TTS-engine state. Built once, used by every endpoint."""
 
@@ -99,6 +118,10 @@ class PolyglotCore:
         self.default_bcp47 = LANGUAGE_TO_BCP47.get(
             self.default_checkpoint.split("_")[0], "en"
         )
+
+        # Global output gain, read live by both synthesis paths (HTTP + Wyoming).
+        # A plain float attribute → live-adjustable from the UI without a reload.
+        self.output_gain: float = clamp_gain(os.environ.get("POCKET_TTS_OUTPUT_GAIN"))
 
         # Map each loaded language (bcp47) to the checkpoint actually loaded
         # for it — built from `models`, NOT a hardcoded table. This makes the

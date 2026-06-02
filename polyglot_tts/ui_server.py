@@ -127,6 +127,10 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
         if "POCKET_TTS_TEMP" in updates:
             from .core import clamp_temperature
             core.set_temperature(clamp_temperature(updates["POCKET_TTS_TEMP"]))
+        # Output gain applies live (read per synthesis).
+        if "POCKET_TTS_OUTPUT_GAIN" in updates:
+            from .core import clamp_gain
+            core.output_gain = clamp_gain(updates["POCKET_TTS_OUTPUT_GAIN"])
         # Report which changed keys need a restart.
         restart_keys = sorted(
             k for k in updates

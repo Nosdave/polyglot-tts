@@ -39,7 +39,9 @@ EDITABLE_KEYS: set[str] = {
     "POCKET_TTS_LAZY_LOAD",       # restart required (and not yet implemented)
     "POCKET_TTS_MIN_SYNTH_CHARS", # live-ish
     "POCKET_TTS_WARMUP",          # restart required
-    "POCKET_TTS_TEMP",            # restart required (baked into model at load)
+    "POCKET_TTS_TEMP",            # live (read per decode step)
+    "POCKET_TTS_OUTPUT_GAIN",     # live (applied per synthesis)
+    "POCKET_TTS_VOICE_NORMALIZE", # live (read per clone)
     "HF_TOKEN",                   # live (next encode)
 }
 
@@ -102,6 +104,21 @@ FIELD_META: dict[str, dict] = {
                 "it takes effect on the next synthesis, no restart. Override it "
                 "per call with the `temperature` field on POST /v1/audio/speech.",
         "placeholder": "0.7",
+    },
+    "POCKET_TTS_OUTPUT_GAIN": {
+        "type": "number",
+        "help": "Output volume multiplier (0.0–4.0, default 1.0). 1.0 = "
+                "unchanged, <1 quieter, >1 louder; the signal is clipped to "
+                "full scale after scaling, so very high values distort. Applies "
+                "live to both endpoints. Override per call with the `gain` field "
+                "on POST /v1/audio/speech.",
+        "placeholder": "1.0",
+    },
+    "POCKET_TTS_VOICE_NORMALIZE": {
+        "type": "bool",
+        "help": "Loudness-normalize a voice sample (EBU R128) when cloning, so "
+                "quiet recordings still make a strong voice prompt. Read at "
+                "clone time; needs ffmpeg (bundled in the image).",
     },
     "HF_TOKEN": {
         "type": "secret",
@@ -206,7 +223,8 @@ def save_settings(updates: dict) -> dict:
         os.environ["HF_TOKEN"] = str(updates["HF_TOKEN"])
     for live_key in ("POCKET_TTS_VOICE", "POCKET_TTS_AUTO_LID",
                      "POCKET_TTS_TEXT_NORM", "POCKET_TTS_MIN_SYNTH_CHARS",
-                     "POCKET_TTS_TEMP"):
+                     "POCKET_TTS_TEMP", "POCKET_TTS_OUTPUT_GAIN",
+                     "POCKET_TTS_VOICE_NORMALIZE"):
         if live_key in updates and updates[live_key] not in (None, ""):
             os.environ[live_key] = str(updates[live_key])
 

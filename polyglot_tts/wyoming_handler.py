@@ -486,7 +486,13 @@ class PocketTTSEventHandler(AsyncEventHandler):
                             pcm_chunk[:fade_n] = pcm_chunk[:fade_n] * ramp
                             first_chunk = False
 
-                        audio_np = pcm_chunk.detach().cpu().clamp(-1, 1).numpy()
+                        audio_np = pcm_chunk.detach().cpu().numpy()
+                        # Global output gain (live), then clip. No per-request
+                        # gain here — the Wyoming protocol has no such field.
+                        gain = getattr(self._core, "output_gain", 1.0) if self._core else 1.0
+                        if gain != 1.0:
+                            audio_np = audio_np * gain
+                        audio_np = audio_np.clip(-1, 1)
                         audio_bytes = (audio_np * 32767).astype("int16").tobytes()
 
                         if self._stream_t_first_chunk is None:
