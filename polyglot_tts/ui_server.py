@@ -120,7 +120,19 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
             raise HTTPException(400, "updates must be an object")
         # If the default voice changed live, reflect it on core immediately.
         new_default = updates.get("POCKET_TTS_VOICE")
-        config_store.save_settings(updates)
+        try:
+            config_store.save_settings(updates)
+        except OSError as e:
+            # Almost always a mount-permission issue: the config dir isn't
+            # writable by the container user (UID 10001). Surface it clearly
+            # instead of an opaque 500 — a silent failure looks like the UI
+            # "ignoring" saved settings.
+            raise HTTPException(
+                500,
+                f"Could not persist settings to {config_store.config_path()}: "
+                f"{e}. The config volume must be writable by the container user "
+                f"(UID 10001) — use a named volume, or chown the mounted dir.",
+            ) from e
         if new_default:
             core.default_voice = str(new_default)
         # Sampling temperature applies live (model.temp is read per decode step).

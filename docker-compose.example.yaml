@@ -60,7 +60,12 @@ services:
       # POCKET_TTS_UI_TOKEN: "change-me"
     volumes:
       - ./voices-extra:/app/voices-extra
-      - ./config:/app/config                       # persist web-UI settings
+      # Named volume (NOT a host bind) so it inherits the image's UID-10001
+      # ownership and stays writable. A host bind like ./config:/app/config
+      # would be owned by your host user and the container (UID 10001) couldn't
+      # write it — every UI save would fail. If you must bind a host dir, chown
+      # it to 10001 first.
+      - polyglot-config:/app/config                # persist web-UI settings
       - polyglot-hf-cache:/app/.cache/huggingface
 
   # Minimal — single language, CPU, smallest RAM footprint.
@@ -80,4 +85,5 @@ services:
       - polyglot-hf-cache:/app/.cache/huggingface
 
 volumes:
+  polyglot-config:
   polyglot-hf-cache:

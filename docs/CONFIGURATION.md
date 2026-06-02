@@ -117,7 +117,7 @@ The token value is never logged.
 | Variable | Default | What it does |
 |---|---|---|
 | `POCKET_TTS_UI_TOKEN` | unset | If set, the web UI (`/ui`) and its `/api/ui/*` endpoints require this token. Unset = open (LAN-only). |
-| `POCKET_TTS_CONFIG_FILE` | `/app/config/settings.json` | Where UI-saved settings are persisted. Mount this path to keep edits across restarts. |
+| `POCKET_TTS_CONFIG_FILE` | `/app/config/settings.json` | Where UI-saved settings are persisted. Mount `/app/config` to keep edits across restarts. **The mount must be writable by the container user (UID 10001)** — prefer a named volume (inherits the right ownership); a host bind dir must be `chown`ed to `10001` or the UI's "Save" fails. |
 
 See [docs/WEB_UI.md](WEB_UI.md) for the full UI guide (mic-recording HTTPS
 requirement, reverse-proxy setup, settings-restart behaviour).

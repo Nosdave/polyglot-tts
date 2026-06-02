@@ -4,6 +4,17 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **UI "Save" silently failed when `/app/config` wasn't writable by the
+  container user.** A host-bind config dir owned by the host user (not UID
+  10001) made every `POST /api/ui/config` raise a `PermissionError` → opaque
+  500, so saved settings never persisted (looked like the UI ignored them).
+  The endpoint now returns a clear message naming the writability requirement,
+  and the docker-compose example uses a **named volume** for `/app/config`
+  (inherits the image's UID-10001 ownership) instead of a host bind. Docs note
+  the chown requirement for host binds.
+
 ### Added
 
 - **Voice-sample loudness normalization on clone.** A new voice is loudness-
