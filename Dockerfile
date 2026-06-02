@@ -142,6 +142,12 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
         || echo '{"type":"describe"}' | nc -w 5 localhost "${POCKET_TTS_WYOMING_PORT:-10200}" | grep -q "polyglot-tts" \
         || exit 1
 
+# PyTorch CUDA allocator: grow segments on demand instead of pre-reserving big
+# blocks. Trims the per-process VRAM footprint and avoids fragmentation OOMs —
+# matters most on shared/unified memory (e.g. DGX Spark GB10). Harmless on CPU.
+# A native torch env var; override the whole value with -e to add more options.
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 # Default env values shipped with the image
 ENV POCKET_TTS_LANGUAGES=english_2026-04,german_24l,french_24l \
     POCKET_TTS_VOICE=eve \

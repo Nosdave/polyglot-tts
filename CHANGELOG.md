@@ -4,6 +4,14 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **Ship `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` by default.** The
+  CUDA allocator now grows segments on demand instead of pre-reserving large
+  blocks, trimming the per-process VRAM footprint (~1 GB on a 3-language load)
+  and avoiding fragmentation OOMs — most valuable on shared/unified memory like
+  the DGX Spark. Overridable via `-e`; no effect on the CPU image.
+
 ### Fixed
 
 - **UI "Save" silently failed when `/app/config` wasn't writable by the

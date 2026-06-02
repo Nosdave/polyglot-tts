@@ -118,6 +118,7 @@ The token value is never logged.
 |---|---|---|
 | `POCKET_TTS_UI_TOKEN` | unset | If set, the web UI (`/ui`) and its `/api/ui/*` endpoints require this token. Unset = open (LAN-only). |
 | `POCKET_TTS_CONFIG_FILE` | `/app/config/settings.json` | Where UI-saved settings are persisted. Mount `/app/config` to keep edits across restarts. **The mount must be writable by the container user (UID 10001)** — prefer a named volume (inherits the right ownership); a host bind dir must be `chown`ed to `10001` or the UI's "Save" fails. |
+| `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | Native PyTorch CUDA-allocator knob, shipped on by default. Grows VRAM segments on demand instead of pre-reserving large blocks → smaller footprint and fewer fragmentation OOMs, which matters on shared/unified memory (DGX Spark). Override the whole value to tune further (e.g. `expandable_segments:True,max_split_size_mb:128`). No effect on the CPU image. |
 
 See [docs/WEB_UI.md](WEB_UI.md) for the full UI guide (mic-recording HTTPS
 requirement, reverse-proxy setup, settings-restart behaviour).
