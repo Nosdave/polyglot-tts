@@ -101,7 +101,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libjemalloc2 \
     && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /var/cache/apt/*
+    && rm -rf /var/cache/apt/* \
+    # Fail the build (not the runtime) if jemalloc isn't resolvable — LD_PRELOAD
+    # below names it by bare soname, so a future base bump that drops the lib
+    # would otherwise crash-loop PID 1 instead of erroring here.
+    && ldconfig -p | grep -q libjemalloc.so.2
 
 # Heavy deps (torch + cuda + everything else) — stable layer, cached on pull
 # unless a dependency actually changes.
