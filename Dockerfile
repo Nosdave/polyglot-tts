@@ -99,6 +99,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     netcat-openbsd \
     curl \
+    libjemalloc2 \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/cache/apt/*
 
@@ -147,6 +148,14 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 \
 # matters most on shared/unified memory (e.g. DGX Spark GB10). Harmless on CPU.
 # A native torch env var; override the whole value with -e to add more options.
 ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Use jemalloc instead of glibc malloc. The model-load + warmup paths allocate
+# ~GB of transient CPU buffers that glibc frees but does NOT return to the OS
+# (fragmentation; malloc_trim / MALLOC_ARENA_MAX / THP toggles don't reclaim it),
+# leaving ~2-3 GB of resident anon RAM per 3-language load. jemalloc returns it.
+# Bare soname (no path) so it resolves on both arm64 and amd64. Override with
+# `-e LD_PRELOAD=` to disable.
+ENV LD_PRELOAD=libjemalloc.so.2
 
 # Default env values shipped with the image
 ENV POCKET_TTS_LANGUAGES=english_2026-04,german_24l,french_24l \

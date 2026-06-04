@@ -6,6 +6,14 @@ All notable changes will be documented here. Semantic versioning.
 
 ### Changed
 
+- **Use jemalloc to reclaim CPU RAM after model load.** The 4-stage weight load
+  + warmup allocate gigabytes of transient CPU buffers; glibc malloc frees them
+  but doesn't return them to the OS (fragmentation — `malloc_trim`,
+  `MALLOC_ARENA_MAX`, and disabling THP were all measured to not reclaim it),
+  leaving ~2–3 GB of resident anonymous RAM per 3-language load (it is **not** a
+  duplicate of the GPU weights — those move to the GPU cleanly). The image now
+  ships `libjemalloc2` with `LD_PRELOAD=libjemalloc.so.2`, which returns the
+  freed memory. Override with `-e LD_PRELOAD=` to disable.
 - **Ship `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` by default.** The
   CUDA allocator now grows segments on demand instead of pre-reserving large
   blocks, trimming the per-process VRAM footprint (~1 GB on a 3-language load)
