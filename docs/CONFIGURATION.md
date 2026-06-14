@@ -41,6 +41,35 @@ which checkpoint to use per request.
 | `POCKET_TTS_VOICES_DIR` | `/app/voices` | Reserved for image-shipped customs (empty today). |
 | `POCKET_TTS_VOICES_EXTRA_DIR` | `/app/voices-extra` | User-mounted host volume. File-watcher watches this. |
 
+### Per-language voice references (accent-free multilingual voices)
+
+A cloned voice normally uses **one** reference recording, encoded against every
+loaded language model. That single embedding carries the accent of whatever
+language the recording was in — so a voice cloned from English audio speaks
+German intelligibly but with an English accent.
+
+To remove that, give the **same voice** a separate reference per language using
+the filename convention `<voice>.<bcp47>.<ext>` in `voices-extra/`:
+
+```
+EL_Jarvis.de.mp3     # German reference  -> encoded only against the German model
+EL_Jarvis.en.mp3     # English reference -> encoded only against the English model
+EL_Jarvis.fr.mp3     # French reference  -> encoded only against the French model
+EL_Jarvis.mp3        # optional fallback -> used for any language without its own file
+```
+
+All files sharing the voice name (`EL_Jarvis`) form **one** voice; each language
+model speaks it from a native-language reference -> no cross-language accent.
+
+- The tag must be a known language code (`de`, `en`, `fr`, `it`, `es`, `pt`).
+  A name like `my_poly_voice.mp3` is unaffected — `poly` is not a language.
+- **Fallback / backwards compatible:** a voice with a single untagged file
+  behaves exactly as before (one embedding shared across all languages).
+- A language with neither its own file nor an untagged fallback simply isn't
+  cloned for that voice (it falls back to the default voice at synth time).
+- Drop, replace or delete any of a voice's files at runtime — the file-watcher
+  rebuilds the whole voice from its current files.
+
 ## Device
 
 | Variable | Default | What it does |

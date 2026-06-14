@@ -4,6 +4,21 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **Per-language voice references — accent-free multilingual voices.** A voice
+  can now have one reference recording *per language*, coupled to the matching
+  model, via the filename convention `<voice>.<bcp47>.<ext>` in `voices-extra/`
+  (e.g. `Jarvis.de.mp3`, `Jarvis.en.mp3`, `Jarvis.fr.mp3`). All files sharing a
+  voice name form **one** voice; each language model is cloned from a
+  native-language reference, so the voice no longer carries a cross-language
+  accent (a voice cloned only from English audio used to speak German with an
+  English accent). A single untagged `<voice>.<ext>` keeps the previous
+  behaviour (one embedding shared across all languages) and is also used as the
+  fallback for any language without its own file. The file-watcher rebuilds the
+  whole voice from its current files on any add/replace/delete. See
+  `docs/CONFIGURATION.md`.
+
 ### Changed
 
 - **Use jemalloc to reclaim CPU RAM after model load.** The 4-stage weight load

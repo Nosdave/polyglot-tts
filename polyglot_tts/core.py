@@ -133,6 +133,16 @@ class PolyglotCore:
             bcp = LANGUAGE_TO_BCP47.get(ckpt.split("_")[0], ckpt[:2])
             self.bcp47_to_checkpoint.setdefault(bcp, ckpt)
 
+        # Reverse map: each checkpoint -> its bcp47. Unambiguous (every
+        # checkpoint has exactly one language), unlike the forward map where
+        # several checkpoints can share a bcp47 (german + german_24l -> de).
+        # Used by the voice loader to couple a language-tagged reference file
+        # (voice.<bcp47>.ext) to just the matching model(s).
+        self.checkpoint_bcp47: dict[str, str] = {
+            ckpt: LANGUAGE_TO_BCP47.get(ckpt.split("_")[0], ckpt[:2])
+            for ckpt in models
+        }
+
         # Mutex guarding voice_states. File-watcher writes (add/remove),
         # endpoints read + on-demand-write. threading.RLock works from both
         # the watcher thread AND from asyncio paths via asyncio.to_thread.
@@ -231,8 +241,23 @@ class PolyglotCore:
         Returns dict mapping checkpoint-name -> state-vector. Empty dict on
         total failure.
         """
+        return self.encode_voice_for(source, list(self.models.keys()))
+
+    def encode_voice_for(self, source, checkpoints) -> dict:
+        """Encode a voice against ONLY the given checkpoints.
+
+        Used to couple a language-specific reference file (voice.<bcp47>.ext)
+        to just the matching model(s): a German reference is never encoded
+        through the English model, so each language keeps a native accent.
+
+        Returns dict mapping checkpoint-name -> state-vector (only for the
+        requested checkpoints that encoded successfully).
+        """
         per_lang_state: dict = {}
-        for ckpt, model in self.models.items():
+        for ckpt in checkpoints:
+            model = self.models.get(ckpt)
+            if model is None:
+                continue
             try:
                 arg = str(source) if isinstance(source, Path) else source
                 per_lang_state[ckpt] = model.get_state_for_audio_prompt(arg)

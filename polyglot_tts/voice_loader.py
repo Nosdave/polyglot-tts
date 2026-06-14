@@ -129,8 +129,122 @@ def encode_voice_file(path: Path, core) -> dict:
             decodable.unlink(missing_ok=True)
 
 
+# ── Per-language references: voice.<bcp47>.ext ────────────────────────────
+#
+# A single voice can be backed by several reference files, one per language,
+# each coupled to the matching language model:
+#
+#   EL_Jarvis.de.mp3   -> encoded ONLY against the German checkpoint(s)
+#   EL_Jarvis.en.mp3   -> encoded ONLY against the English checkpoint(s)
+#   EL_Jarvis.fr.mp3   -> encoded ONLY against the French checkpoint(s)
+#   EL_Jarvis.mp3      -> fallback for any checkpoint without a tagged file
+#
+# This removes cross-language accent: each model speaks the voice from a
+# native-language reference. A voice with only one untagged file behaves
+# exactly as before (one embedding shared across all checkpoints).
+
+_lang_tags_cache: set[str] | None = None
+
+
+def _known_lang_tags() -> set[str]:
+    """bcp47 codes we accept as filename tags (de/en/fr/it/es/pt …).
+
+    Derived from pocket-tts' language map so it tracks whatever the engine
+    knows. Lazy + cached to avoid a circular import at module load.
+    """
+    global _lang_tags_cache
+    if _lang_tags_cache is None:
+        try:
+            from .core import LANGUAGE_TO_BCP47
+            _lang_tags_cache = {b.lower() for b in LANGUAGE_TO_BCP47.values()}
+        except Exception:  # noqa: BLE001
+            _lang_tags_cache = {"de", "en", "fr", "it", "es", "pt"}
+    return _lang_tags_cache
+
+
+def split_voice_lang(stem: str) -> tuple[str, str | None]:
+    """Split a file stem into (voice_name, bcp47-or-None).
+
+    'EL_Jarvis.de' -> ('EL_Jarvis', 'de');  'eve' -> ('eve', None).
+    The trailing dotted component is a language tag ONLY if it's a known
+    bcp47 code — so 'EL_Louisa_poly' stays intact ('poly' is not a language).
+    """
+    if "." in stem:
+        base, maybe = stem.rsplit(".", 1)
+        if base and maybe.lower() in _known_lang_tags():
+            return base, maybe.lower()
+    return stem, None
+
+
+def parse_voice_file(path: Path) -> tuple[str, str | None]:
+    """(voice_name, bcp47-or-None) for an audio file path."""
+    return split_voice_lang(path.stem)
+
+
+def group_voice_files(voices_dir: Path) -> dict[str, dict[str | None, Path]]:
+    """Group audio files in a dir by voice name → {bcp47-or-None: path}."""
+    groups: dict[str, dict[str | None, Path]] = {}
+    if not voices_dir.exists():
+        return groups
+    for f in sorted(voices_dir.iterdir()):
+        if not f.is_file() or f.suffix.lower() not in AUDIO_EXT:
+            continue
+        name, lang = parse_voice_file(f)
+        groups.setdefault(name, {})[lang] = f
+    return groups
+
+
+def build_voice_states(files: dict[str | None, Path], core) -> dict:
+    """Build {checkpoint: state} for one voice from its (tagged) reference files.
+
+    For each loaded checkpoint, use the file tagged with that checkpoint's
+    bcp47 if present, else the untagged fallback. Each chosen file is decoded +
+    loudness-normalized once and encoded only against the checkpoints that use
+    it. Returns {} if nothing could be built.
+    """
+    # Which source file serves which checkpoints?
+    file_to_ckpts: dict[Path, list[str]] = {}
+    for ckpt in core.models:
+        bcp = core.checkpoint_bcp47.get(ckpt)
+        src = files.get(bcp)
+        if src is None:
+            src = files.get(None)  # untagged fallback
+        if src is None:
+            continue
+        file_to_ckpts.setdefault(src, []).append(ckpt)
+
+    per_lang: dict = {}
+    for src, ckpts in file_to_ckpts.items():
+        decodable, dec_temp = ensure_decodable(src)
+        normalized, norm_temp = normalize_loudness(decodable)
+        try:
+            per_lang.update(core.encode_voice_for(normalized, ckpts))
+        finally:
+            if norm_temp:
+                normalized.unlink(missing_ok=True)
+            if dec_temp:
+                decodable.unlink(missing_ok=True)
+    return per_lang
+
+
+def reload_voice(core, voices_dir: Path, voice_name: str) -> int:
+    """Re-build one voice from ALL its current files, or remove it if none
+    remain. Returns the number of languages registered (0 = removed/failed).
+    Used by the file-watcher on any change to a voice's reference files.
+    """
+    files = group_voice_files(voices_dir).get(voice_name, {})
+    if not files:
+        core.remove_voice(voice_name)
+        return 0
+    per_lang = build_voice_states(files, core)
+    if per_lang:
+        core.add_voice(voice_name, per_lang)
+    return len(per_lang)
+
+
 def load_voices_from_dir(voices_dir: Path, core) -> int:
-    """Walk a directory and register each found voice.
+    """Walk a directory and register each found voice (grouping per-language
+    reference files into a single multi-language voice).
 
     Returns count of successfully loaded voices.
     """
@@ -139,15 +253,14 @@ def load_voices_from_dir(voices_dir: Path, core) -> int:
         return 0
 
     count = 0
-    for f in sorted(voices_dir.iterdir()):
-        if not f.is_file() or f.suffix.lower() not in AUDIO_EXT:
-            continue
-        name = f.stem
-        _LOGGER.info("Loading voice from %s ...", f.name)
+    for name, files in group_voice_files(voices_dir).items():
+        tags = sorted(lang for lang in files if lang)
+        desc = ("langs: " + ", ".join(tags)) if tags else "single file"
+        _LOGGER.info("Loading voice '%s' (%s) ...", name, desc)
         try:
-            per_lang = encode_voice_file(f, core)
+            per_lang = build_voice_states(files, core)
         except Exception as e:  # noqa: BLE001
-            _LOGGER.warning("Voice load failed for %s: %s", f.name, e)
+            _LOGGER.warning("Voice load failed for %s: %s", name, e)
             continue
         if per_lang:
             core.add_voice(name, per_lang)
