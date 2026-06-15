@@ -14,9 +14,16 @@ All notable changes will be documented here. Semantic versioning.
   a redundant trailing „Uhr"; numbered-list markers `1.`/`2.` at line start →
   ordinal adverbs („Erstens, "/„Zweitens, "); and `=` → „gleich"/„equals"/„égale".
   Previously `14.06` was read as the decimal „vierzehn Komma null sechs", `22:57`
-  kept its colon, list markers became „eins. zwei.", and `=` was dropped. Version
-  numbers like `3.5` are left untouched (a dotless `DD.MM` is only a date when the
-  day is > 12 or a trailing dot is present).
+  kept its colon, list markers became „eins. zwei.", and `=` was dropped.
+  Dates also handle a 4-digit year (`14.06.2026` → „… zweitausendsechsundzwanzig").
+  False-positive guards: a `DD.MM` is treated as a date only when the day is > 12
+  or a 4-digit year is present, so a version like `Mistral 3.5.` stays
+  „drei Komma fünf" (not „dritter Mai"); a non-time `digit:digit` colon is a
+  score/ratio (`2:1` → „zwei zu eins", `16:9` → „sechzehn zu neun").
+- **Locale-aware number parsing.** de/fr/es/it/pt read `.` as the thousands
+  separator and `,` as the decimal point (`1.000` → „eintausend", `1.250.000` →
+  „eine Million …", `14,06` → „vierzehn Komma null sechs"); English keeps the
+  inverse. Previously `1.000` was misread as the decimal `1.0` („eins").
 
 - **Per-language voice references — accent-free multilingual voices.** A voice
   can now have one reference recording *per language*, coupled to the matching

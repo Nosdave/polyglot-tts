@@ -189,7 +189,11 @@ _SYMBOLS: Final[dict[str, dict[str, str]]] = {
 # entry just get "<h> <m>".
 _TIME_CONNECTOR: Final[dict[str, str]] = {"de": "Uhr", "fr": "heures"}
 
-_DATE_RE: Final = re.compile(r"(?<!\d)(\d{1,2})\.(\d{1,2})(\.?)(?!\d)")
+# A digit:digit colon that is NOT a clock time (e.g. score "2:1", ratio "16:9")
+# → spoken separator. Languages without an entry just lose the colon.
+_RATIO_SEP: Final[dict[str, str]] = {"de": " zu ", "en": " to ", "fr": " à "}
+
+_DATE_RE: Final = re.compile(r"(?<!\d)(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?(?!\d)")
 # Optionally swallow a trailing unit ("22:57 Uhr" → no doubled "Uhr").
 _TIME_RE: Final = re.compile(
     r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)(?:\s*(?:Uhr|heures?|h)\b)?",
@@ -228,11 +232,14 @@ def _expand_dates(text: str, lang: str, n2w) -> str:
         return text
 
     def _sub(m: "re.Match") -> str:
-        d, mo, dot = int(m.group(1)), int(m.group(2)), m.group(3)
+        d, mo, yr = int(m.group(1)), int(m.group(2)), m.group(3)
         if not (1 <= d <= 31 and 1 <= mo <= 12):
             return m.group(0)
-        if not dot and d <= 12:
-            return m.group(0)  # ambiguous (e.g. version "3.5") -> leave it
+        # Only treat as a date when unambiguous: day > 12 (can't be a month) or
+        # an explicit 4-digit year. Otherwise "3.5" / "1.12" stay numbers — a
+        # version like "Mistral 3.5." must NOT become "dritter Mai".
+        if d <= 12 and not yr:
+            return m.group(0)
         if lang == "de":
             try:
                 day = n2w(d, lang="de", to="ordinal")  # 'vierzehnte'
@@ -242,14 +249,21 @@ def _expand_dates(text: str, lang: str, n2w) -> str:
             # citation form ("vierzehnter Juni").
             prev = m.string[:m.start()].rstrip()
             last = prev.rsplit(None, 1)[-1].lower() if prev else ""
-            day = day.rstrip("e") + ("en" if last in _DE_DATIVE_WORDS else "er") \
-                if day.endswith("e") else day
-            return f"{day} {months[mo - 1]}"
-        try:  # fr
-            day = "premier" if d == 1 else n2w(d, lang="fr")
-        except Exception:  # noqa: BLE001
-            return m.group(0)
-        return f"{day} {months[mo - 1]}"
+            if day.endswith("e"):
+                day = day[:-1] + ("en" if last in _DE_DATIVE_WORDS else "er")
+            res = f"{day} {months[mo - 1]}"
+        else:  # fr
+            try:
+                day = "premier" if d == 1 else n2w(d, lang="fr")
+            except Exception:  # noqa: BLE001
+                return m.group(0)
+            res = f"{day} {months[mo - 1]}"
+        if yr:
+            try:
+                res += " " + n2w(int(yr), lang=lang)
+            except Exception:  # noqa: BLE001
+                res += " " + yr
+        return res
 
     return _DATE_RE.sub(_sub, text)
 
@@ -283,6 +297,26 @@ def _expand_symbols(text: str, lang: str) -> str:
     for sym, word in table.items():
         text = re.sub(r"\s*" + re.escape(sym) + r"\s*", f" {word} ", text)
     return text
+
+
+def _expand_ratios(text: str, lang: str, n2w) -> str:
+    """A digit:digit colon left after time-matching is a score/ratio, not a
+    clock time → spell both numbers as cardinals so the trailing one isn't later
+    mis-read as an ordinal ("2:1" → "zwei zu eins", "16:9" → "sechzehn zu neun").
+    """
+    sep = _RATIO_SEP.get(lang, " ")
+    if not n2w:
+        return re.sub(r"(?<=\d)\s*:\s*(?=\d)", sep, text)
+
+    def _sub(m: "re.Match") -> str:
+        try:
+            a = n2w(int(m.group(1)), lang=lang)
+            b = n2w(int(m.group(2)), lang=lang)
+        except Exception:  # noqa: BLE001
+            return m.group(0)
+        return f"{a}{sep}{b}"
+
+    return re.sub(r"(?<!\d)(\d+)\s*:\s*(\d+)(?!\d)", _sub, text)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -503,7 +537,11 @@ _UNIT_PATTERNS: dict[str, re.Pattern] = {
 # (units are handled in the previous step). German uses , as decimal,
 # English uses . as decimal. We handle both for robustness.
 _NUMBER_PATTERN: Final[re.Pattern] = re.compile(
-    r"(?<![A-Za-z0-9.])-?\d+(?:[.,]\d+)?(?![A-Za-z0-9])"
+    # Either a grouped-thousands number (1.000 / 1.250.000 / 1.250,50 — at least
+    # one ".NNN" group) or a plain/decimal number (42 / 3.5 / 14,06). The
+    # trailing lookahead rejects the grouped alt for separator-less integers so
+    # "12345" still matches whole via the second alt.
+    r"(?<![A-Za-z0-9.])-?(?:\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)(?![A-Za-z0-9])"
 )
 
 
@@ -577,21 +615,30 @@ def _german_ordinals(text: str, n2w) -> str:
 # ─────────────────────────────────────────────────────────────────────────
 
 
+# Languages that write '.' as the thousands separator and ',' as the decimal
+# point ("1.000,50"). English (and unlisted langs) use the opposite ("1,000.50").
+_DOT_THOUSANDS_LANGS: Final = {"de", "fr", "es", "it", "pt"}
+
+
 def _parse_number(s: str, lang: str) -> float | None:
     """Parse a localized number string to float.
 
-    German/French use ',' as decimal. English uses '.' as decimal.
-    We accept BOTH because LLMs are inconsistent.
+    Locale-aware: de/fr/es/it/pt use ',' as decimal and '.' as the thousands
+    separator (so "1.000" is one thousand, not 1.0); English the other way.
+    A lone '.' that is NOT a 3-digit grouping (e.g. "3.5") is read as a decimal
+    point in every locale — LLMs are inconsistent and a version like "3.5"
+    should stay "drei Komma fünf", not become 35.
     """
-    s = s.strip()
+    s = s.strip().rstrip(".")  # trailing '.' is a sentence end, not a decimal
     if not s:
         return None
-    # If ends in . it's not a decimal (could be sentence-end), strip
-    s = s.rstrip(".")
-    if not s:
-        return None
-    # Normalize: replace comma with point for float parsing
-    s_norm = s.replace(",", ".")
+    if lang in _DOT_THOUSANDS_LANGS and re.fullmatch(
+            r"-?\d{1,3}(?:\.\d{3})+(?:,\d+)?", s):
+        s_norm = s.replace(".", "").replace(",", ".")   # 1.250,50 -> 1250.50
+    elif lang == "en":
+        s_norm = s.replace(",", "")                      # ',' = thousands
+    else:
+        s_norm = s.replace(",", ".")                     # ',' = decimal
     try:
         return float(s_norm)
     except ValueError:
@@ -661,6 +708,7 @@ def normalize(text: str, lang: str = "de") -> str:
     out = _expand_dates(out, lang, _n2w_dt)
     out = _expand_times(out, lang, _n2w_dt)
     out = _expand_symbols(out, lang)
+    out = _expand_ratios(out, lang, _n2w_dt)
 
     # 5: Unit expansion (number + unit-token together)
     unit_pat = _UNIT_PATTERNS.get(lang)
@@ -735,6 +783,15 @@ def _smoke_test() -> None:
         "50 Hz / 230 V / 16 A",
         "Druck 1013 hPa, Wind 12,5 km/h",
         "Spannung «schwankt» stark",
+        # dates / times / lists / '=' (and their false-positive guards)
+        "Notiz für 14.06:\n1. Party um 22:57.\n2. Eurosatory = Arbeit.",
+        "Am 14.06.2026 um 9:05 Uhr.",            # date+year (dative) + time
+        "Heute ist der 14.06.",                  # date, nominative
+        "Mistral 3.5 und Python 3.13 laufen.",   # versions stay decimals
+        "Kostet 1.000 Euro, also 1.250.000 Cent.",  # thousands
+        "Wert 14,06 Grad; Pi ist 3.14.",         # comma-decimal + dotted decimal
+        "Es steht 2:1, Bild 16:9.",              # scores/ratios, not times
+        "2 + 2 = 4 und x = 5.",                  # '=' -> gleich
     ]
     cases_en = [
         "PV delivers **4500 W** at 23.5 °C.",
