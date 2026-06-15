@@ -34,7 +34,11 @@ All notable changes will be documented here. Semantic versioning.
   score/ratio (`2:1` → „zwei zu eins", `16:9` → „sechzehn zu neun"); and a
   hyphen/en-/em-dash between two integers as a range (`10-20` → „zehn bis zwanzig"
   / „ten to twenty" / „dix à vingt"), while a spaced dash between words stays a
-  comma pause.
+  comma pause. More spoken symbols: `<` → „kleiner als" / „less than", `>` →
+  „größer als" / „greater than", an arrow (`→`, `->`, `=>`) → „daraus folgt"
+  (logical implication) / „therefore" / „donc", and a tilde before a number
+  (`~10` → „circa 10" / „about 10" / „environ 10"); a lone `~` or `~~strike~~`
+  is left alone. `•`/`‣`/`◦` bullets are now stripped like `-`/`*`/`+`.
 - **Locale-aware number parsing.** de/fr/es/it/pt read `.` as the thousands
   separator and `,` as the decimal point (`1.000` → „eintausend", `1.250.000` →
   „eine Million …", `14,06` → „vierzehn Komma null sechs"); English keeps the

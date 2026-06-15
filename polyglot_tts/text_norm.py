@@ -71,7 +71,7 @@ _MD_PATTERNS: Final[list[tuple[re.Pattern, str]]] = [
     (re.compile(r"__([^_\n]+)__"), r"\1"),              # bold __ → content
     (re.compile(r"(?<!\w)\*([^*\n]+)\*(?!\w)"), r"\1"), # italic * → content
     (re.compile(r"(?<!\w)_([^_\n]+)_(?!\w)"), r"\1"),   # italic _ → content
-    (re.compile(r"^\s{0,3}[-*+]\s+", re.M), ""),        # bullet → strip
+    (re.compile(r"^\s{0,3}[-*+•‣◦]\s+", re.M), ""),      # bullet → strip
     (re.compile(r"^\s{0,3}>\s+", re.M), ""),            # blockquote → strip
     (re.compile(r"\|+"), " "),                          # table pipes → space
     (re.compile(r"^[-:|\s]+$", re.M), ""),              # table separators
@@ -122,7 +122,7 @@ _PUNCT_MAP: Final[dict[str, str]] = {
     "…": ", ",       # ellipsis → comma+pause
     "–": ", ",       # en-dash (Gedankenstrich) → comma+pause
     "—": ", ",       # em-dash (Gedankenstrich) → comma+pause
-    "→": " ",
+    # "→" is spoken ("daraus folgt"), handled in _expand_symbols — not here.
     "←": " ",
     "↑": " ",
     "↓": " ",
@@ -179,10 +179,35 @@ _LIST_ORDINALS: Final[dict[str, list[str]]] = {
            "Neuvièmement", "Dixièmement"],
 }
 
-# Math / relation symbols, spoken per language.
+# Math / relation symbols, spoken per language. Multi-character tokens
+# ("->", "=>") MUST be applied before the bare "<"/">"/"=" — _expand_symbols
+# sorts by length so the arrow wins. An arrow ("→", "->", "=>", "⇒") is read
+# as logical implication ("daraus folgt"); a tilde before a number ("~10") is
+# an approximation (handled via _APPROX, not here).
 _SYMBOLS: Final[dict[str, dict[str, str]]] = {
-    "de": {"=": "gleich"}, "en": {"=": "equals"}, "fr": {"=": "égale"},
-    "it": {"=": "uguale"}, "es": {"=": "igual"}, "pt": {"=": "igual"},
+    "de": {"->": "daraus folgt", "=>": "daraus folgt", "→": "daraus folgt",
+           "⇒": "daraus folgt", "<": "kleiner als", ">": "größer als",
+           "=": "gleich"},
+    "en": {"->": "therefore", "=>": "therefore", "→": "therefore",
+           "⇒": "therefore", "<": "less than", ">": "greater than",
+           "=": "equals"},
+    "fr": {"->": "donc", "=>": "donc", "→": "donc", "⇒": "donc",
+           "<": "inférieur à", ">": "supérieur à", "=": "égale"},
+    "it": {"->": "quindi", "=>": "quindi", "→": "quindi", "⇒": "quindi",
+           "<": "minore di", ">": "maggiore di", "=": "uguale"},
+    "es": {"->": "por lo tanto", "=>": "por lo tanto", "→": "por lo tanto",
+           "⇒": "por lo tanto", "<": "menor que", ">": "mayor que",
+           "=": "igual"},
+    "pt": {"->": "portanto", "=>": "portanto", "→": "portanto",
+           "⇒": "portanto", "<": "menor que", ">": "maior que",
+           "=": "igual"},
+}
+
+# "~" immediately before a number is an approximation: "~10" → "circa 10".
+# A lone "~" or "~~strikethrough~~" (not before a digit) is left untouched.
+_APPROX: Final[dict[str, str]] = {
+    "de": "circa", "en": "about", "fr": "environ",
+    "it": "circa", "es": "aproximadamente", "pt": "aproximadamente",
 }
 
 # Clock-time connector: "22:57" -> "<h> <connector> <m>". Languages without an
@@ -308,12 +333,19 @@ def _expand_ranges(text: str, lang: str) -> str:
 
 
 def _expand_symbols(text: str, lang: str) -> str:
-    """Spoken math/relation symbols, e.g. '=' -> 'gleich'."""
+    """Spoken math/relation symbols: '=' → 'gleich', '<' → 'kleiner als',
+    '>' → 'größer als', an arrow ('→', '->', '=>') → 'daraus folgt', and a
+    tilde before a number ('~10') → 'circa 10'. Multi-character tokens are
+    applied longest-first so '->' / '=>' win over the bare '>' / '='.
+    """
     table = _SYMBOLS.get(lang)
-    if not table:
-        return text
-    for sym, word in table.items():
-        text = re.sub(r"\s*" + re.escape(sym) + r"\s*", f" {word} ", text)
+    if table:
+        for sym in sorted(table, key=len, reverse=True):
+            text = re.sub(r"\s*" + re.escape(sym) + r"\s*",
+                          f" {table[sym]} ", text)
+    approx = _APPROX.get(lang)
+    if approx:
+        text = re.sub(r"~\s*(?=[.,]?\d)", approx + " ", text)
     return text
 
 
