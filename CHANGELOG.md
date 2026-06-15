@@ -6,6 +6,18 @@ All notable changes will be documented here. Semantic versioning.
 
 ### Added
 
+- **Text normalization for dates, clock times, numbered lists and `=`.** Before
+  the generic number step, `text_norm` now expands: numeric dates `DD.MM[.]`
+  → spoken month form (de `14.06` → „vierzehnter Juni", with dative after
+  am/vom/zum; fr `14 juin`); clock times `HH:MM` → „zweiundzwanzig **Uhr**
+  siebenundfünfzig" (de) / „… **heures** …" (fr) / „<h> <m>" (others), swallowing
+  a redundant trailing „Uhr"; numbered-list markers `1.`/`2.` at line start →
+  ordinal adverbs („Erstens, "/„Zweitens, "); and `=` → „gleich"/„equals"/„égale".
+  Previously `14.06` was read as the decimal „vierzehn Komma null sechs", `22:57`
+  kept its colon, list markers became „eins. zwei.", and `=` was dropped. Version
+  numbers like `3.5` are left untouched (a dotless `DD.MM` is only a date when the
+  day is > 12 or a trailing dot is present).
+
 - **Per-language voice references — accent-free multilingual voices.** A voice
   can now have one reference recording *per language*, coupled to the matching
   model, via the filename convention `<voice>.<bcp47>.<ext>` in `voices-extra/`

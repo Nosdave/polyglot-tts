@@ -153,6 +153,139 @@ _PUNCT_MAP: Final[dict[str, str]] = {
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Dates, clock times, numbered-list markers, math symbols
+#
+# These run BEFORE the generic number/decimal step in normalize(): otherwise
+# "14.06" is read as the decimal "vierzehn Komma null sechs", "22:57" keeps its
+# colon, list markers become "eins. zwei.", and "=" is dropped.
+# ─────────────────────────────────────────────────────────────────────────
+
+_MONTHS: Final[dict[str, list[str]]] = {
+    "de": ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+           "August", "September", "Oktober", "November", "Dezember"],
+    "fr": ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+           "août", "septembre", "octobre", "novembre", "décembre"],
+}
+
+# Ordinal adverbs for numbered-list enumerators (1-based). Outside this range
+# the bare marker is dropped (the item text is just read on its own).
+_LIST_ORDINALS: Final[dict[str, list[str]]] = {
+    "de": ["Erstens", "Zweitens", "Drittens", "Viertens", "Fünftens",
+           "Sechstens", "Siebtens", "Achtens", "Neuntens", "Zehntens"],
+    "en": ["First", "Second", "Third", "Fourth", "Fifth", "Sixth",
+           "Seventh", "Eighth", "Ninth", "Tenth"],
+    "fr": ["Premièrement", "Deuxièmement", "Troisièmement", "Quatrièmement",
+           "Cinquièmement", "Sixièmement", "Septièmement", "Huitièmement",
+           "Neuvièmement", "Dixièmement"],
+}
+
+# Math / relation symbols, spoken per language.
+_SYMBOLS: Final[dict[str, dict[str, str]]] = {
+    "de": {"=": "gleich"}, "en": {"=": "equals"}, "fr": {"=": "égale"},
+    "it": {"=": "uguale"}, "es": {"=": "igual"}, "pt": {"=": "igual"},
+}
+
+# Clock-time connector: "22:57" -> "<h> <connector> <m>". Languages without an
+# entry just get "<h> <m>".
+_TIME_CONNECTOR: Final[dict[str, str]] = {"de": "Uhr", "fr": "heures"}
+
+_DATE_RE: Final = re.compile(r"(?<!\d)(\d{1,2})\.(\d{1,2})(\.?)(?!\d)")
+# Optionally swallow a trailing unit ("22:57 Uhr" → no doubled "Uhr").
+_TIME_RE: Final = re.compile(
+    r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)(?:\s*(?:Uhr|heures?|h)\b)?",
+    re.IGNORECASE)
+_LIST_RE: Final = re.compile(r"(?m)^[ \t]*(\d{1,2})\.[ \t]+")
+# German dative triggers: "am 14.06." → "am vierzehntEN Juni" (not -er).
+_DE_DATIVE_WORDS: Final = {"am", "vom", "zum", "beim", "dem"}
+
+
+def _expand_list_markers(text: str, lang: str) -> str:
+    """Leading 'N. ' list enumerators -> spoken ordinal ('1.' -> 'Erstens, ').
+
+    Must run while line breaks are still present (before `_terminate_lines`).
+    """
+    table = _LIST_ORDINALS.get(lang)
+
+    def _sub(m: "re.Match") -> str:
+        n = int(m.group(1))
+        if table and 1 <= n <= len(table):
+            return f"{table[n - 1]}, "
+        return ""  # unknown index -> drop the bare marker
+
+    return _LIST_RE.sub(_sub, text)
+
+
+def _expand_dates(text: str, lang: str, n2w) -> str:
+    """Numeric dates 'DD.MM[.]' -> 'vierzehnter Juni' (de) / '14 juin' (fr).
+
+    Only de/fr (German decimals use ',', so 'DD.MM' is unambiguously a date).
+    To avoid eating version numbers like '3.5', a dotless 'DD.MM' is treated as
+    a date only when the day is > 12 (can't be a month) or a trailing dot marks
+    it explicitly.
+    """
+    months = _MONTHS.get(lang)
+    if not months or not n2w:
+        return text
+
+    def _sub(m: "re.Match") -> str:
+        d, mo, dot = int(m.group(1)), int(m.group(2)), m.group(3)
+        if not (1 <= d <= 31 and 1 <= mo <= 12):
+            return m.group(0)
+        if not dot and d <= 12:
+            return m.group(0)  # ambiguous (e.g. version "3.5") -> leave it
+        if lang == "de":
+            try:
+                day = n2w(d, lang="de", to="ordinal")  # 'vierzehnte'
+            except Exception:  # noqa: BLE001
+                return m.group(0)
+            # Dative after am/vom/zum/... ("am vierzehnten"), else nominative
+            # citation form ("vierzehnter Juni").
+            prev = m.string[:m.start()].rstrip()
+            last = prev.rsplit(None, 1)[-1].lower() if prev else ""
+            day = day.rstrip("e") + ("en" if last in _DE_DATIVE_WORDS else "er") \
+                if day.endswith("e") else day
+            return f"{day} {months[mo - 1]}"
+        try:  # fr
+            day = "premier" if d == 1 else n2w(d, lang="fr")
+        except Exception:  # noqa: BLE001
+            return m.group(0)
+        return f"{day} {months[mo - 1]}"
+
+    return _DATE_RE.sub(_sub, text)
+
+
+def _expand_times(text: str, lang: str, n2w) -> str:
+    """Clock times 'HH:MM' -> '<h> Uhr <m>' (de) / '<h> heures <m>' (fr) /
+    '<h> <m>' (others). Whole hours drop the minute ('22:00' -> 'zwölf Uhr')."""
+    if not n2w:
+        return text
+    conn = _TIME_CONNECTOR.get(lang)
+
+    def _sub(m: "re.Match") -> str:
+        h, mi = int(m.group(1)), int(m.group(2))
+        try:
+            hw = n2w(h, lang=lang)
+            mw = n2w(mi, lang=lang) if mi else ""
+        except Exception:  # noqa: BLE001
+            return m.group(0)
+        if conn:
+            return f"{hw} {conn} {mw}".strip()
+        return f"{hw} {mw}".strip()
+
+    return _TIME_RE.sub(_sub, text)
+
+
+def _expand_symbols(text: str, lang: str) -> str:
+    """Spoken math/relation symbols, e.g. '=' -> 'gleich'."""
+    table = _SYMBOLS.get(lang)
+    if not table:
+        return text
+    for sym, word in table.items():
+        text = re.sub(r"\s*" + re.escape(sym) + r"\s*", f" {word} ", text)
+    return text
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Abbreviations — sprachspezifisch
 # "z. B." spells "z", "B" and reads the dots as sentence-ends. Expand the
 # common dotted abbreviations to full words. `\s*` between tokens tolerates a
@@ -502,6 +635,11 @@ def normalize(text: str, lang: str = "de") -> str:
     for pat, repl in _ABBREV_PATTERNS.get(lang, ()):
         out = pat.sub(repl, out)
 
+    # 3b2: Numbered-list enumerators ("1. " at line start) → spoken ordinal
+    # ("Erstens, ") — must run while line breaks are still present, i.e. BEFORE
+    # _terminate_lines joins the lines.
+    out = _expand_list_markers(out, lang)
+
     # 3c: Terminate paragraphs / list items so they don't run together. Must
     # come AFTER the markdown strip (bullets gone, newlines still present) and
     # BEFORE the whitespace-collapse that would erase the line structure.
@@ -515,6 +653,14 @@ def normalize(text: str, lang: str = "de") -> str:
     # 4b: A free-standing hyphen used as a dash (spaces on both sides) becomes a
     # comma pause. In-word hyphens (E-Auto) and signed numbers (-5) are spared.
     out = re.sub(r"\s+-\s+", ", ", out)
+
+    # 4c: Dates, clock times and math symbols BEFORE any number/decimal handling
+    # — otherwise "14.06" reads as the decimal "vierzehn Komma null sechs",
+    # "22:57" keeps its colon, and "=" is dropped.
+    _n2w_dt = _try_num2words()
+    out = _expand_dates(out, lang, _n2w_dt)
+    out = _expand_times(out, lang, _n2w_dt)
+    out = _expand_symbols(out, lang)
 
     # 5: Unit expansion (number + unit-token together)
     unit_pat = _UNIT_PATTERNS.get(lang)
