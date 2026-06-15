@@ -104,6 +104,28 @@ let VOICE_NAMES = [];
 let CHECKPOINTS = [];
 
 // ── voices ──────────────────────────────────────────────────────────────────
+// One upload slot per language the engine can speak, plus an untagged fallback.
+const LANG_SLOTS = [
+  { key: "",   label: "Fallback (all languages)" },
+  { key: "de", label: "Deutsch" },
+  { key: "en", label: "English" },
+  { key: "fr", label: "Français" },
+  { key: "it", label: "Italiano" },
+  { key: "es", label: "Español" },
+  { key: "pt", label: "Português" },
+];
+const SLOTS = {};   // lang-key -> {blob, filename}
+
+function langBadges(v) {
+  if (!v.languages || !v.languages.length) return "";
+  const chips = v.languages.map((l) =>
+    `<span class="lng ${l.dedicated ? "ded" : ""}" title="${l.dedicated ? "own reference audio" : "shared fallback audio"}">${l.bcp47}</span>`
+  ).join("");
+  const star = v.per_language
+    ? ` <span class="poly" title="multilingual — a separate reference per language">◆</span>` : "";
+  return `<span class="langs">${chips}${star}</span>`;
+}
+
 async function refreshVoices() {
   const r = await api("/v1/audio/voices");
   if (!r.ok) return;
@@ -118,6 +140,7 @@ async function refreshVoices() {
   document.getElementById("voice-list").innerHTML = voices
     .map((v) => `<div class="voice-item">
         <span class="name">${v.name}</span>
+        ${langBadges(v)}
         <span class="kind">${v.kind}</span>
         ${v.kind === "custom" ? `<button data-del="${v.name}">delete</button>` : ""}
       </div>`).join("");
@@ -138,58 +161,37 @@ async function currentVoiceNames() {
   } catch (e) { return []; }
 }
 
-async function uploadBlob(blob, filename, name) {
-  const status = document.getElementById("upload-status");
-  const before = await currentVoiceNames();
+async function uploadOne(blob, filename, name, language) {
   const fd = new FormData();
   fd.append("file", blob, filename);
-  if (name) fd.append("name", name);
-  status.innerHTML = '⏳ Uploading…';
-  let j;
-  try {
-    const r = await api("/v1/audio/voices", { method: "POST", body: fd });
-    j = await r.json();
-    if (!r.ok) { status.innerHTML = '❌ Error: ' + (j.detail || r.status); return; }
-  } catch (e) { status.innerHTML = '❌ Upload failed.'; return; }
-
-  const want = j.name;
-  status.innerHTML = `⏳ Embedding "<b>${want}</b>"… this can take ~30 s (longer on CPU).`;
-  // Poll until the voice appears (or a timeout).
-  let waited = 0;
-  const poll = setInterval(async () => {
-    waited += 3;
-    const now = await currentVoiceNames();
-    if (now.includes(want)) {
-      clearInterval(poll);
-      status.innerHTML = `✅ Voice "<b>${want}</b>" is ready.`;
-      refreshVoices();
-      document.getElementById("upload-name").value = "";
-    } else if (waited >= 90) {
-      clearInterval(poll);
-      status.innerHTML = `⚠️ "<b>${want}</b>" didn't appear after 90 s. ` +
-        `Check the server log — the file may be too short, noisy, or (for cloning) ` +
-        `you may need an HF token in Settings.`;
-      refreshVoices();
-    } else {
-      status.innerHTML = `⏳ Embedding "<b>${want}</b>"… (${waited}s)`;
-    }
-  }, 3000);
+  fd.append("name", name);
+  if (language) fd.append("language", language);
+  return api("/v1/audio/voices", { method: "POST", body: fd });
 }
-
-// ── gated voice creation: sample + unique name + Generate ──────────────────
-let SELECTED_BLOB = null;       // File or Blob
-let SELECTED_FILENAME = "";     // filename to send
 
 function nameOk(s) {
   return s && !s.startsWith(".") && s.indexOf("..") === -1 &&
     /^[A-Za-z0-9_.-]+$/.test(s);
 }
 
-function setSample(blob, filename, label) {
-  SELECTED_BLOB = blob;
-  SELECTED_FILENAME = filename;
-  document.getElementById("selected-file").textContent = label;
-  document.getElementById("selected-file").classList.remove("muted");
+function slotEl(key) { return document.getElementById("slot-status-" + (key || "fb")); }
+
+function setSlot(key, blob, filename) {
+  SLOTS[key] = { blob, filename };
+  const st = slotEl(key);
+  if (st) { st.textContent = "✓ " + filename; st.classList.add("set"); }
+  // pre-fill the voice name from the first file's stem (minus any lang tag)
+  const nm = document.getElementById("upload-name");
+  if (!nm.value.trim()) {
+    nm.value = filename.replace(/\.[^.]+$/, "").replace(/\.(de|en|fr|it|es|pt)$/i, "");
+  }
+  validateGenerate();
+}
+
+function clearSlot(key) {
+  delete SLOTS[key];
+  const st = slotEl(key);
+  if (st) { st.textContent = "—"; st.classList.remove("set"); }
   validateGenerate();
 }
 
@@ -197,61 +199,24 @@ function validateGenerate() {
   const name = document.getElementById("upload-name").value.trim();
   const btn = document.getElementById("generate-btn");
   const hint = document.getElementById("name-hint");
+  const have = Object.keys(SLOTS);
   let ok = true, msg = "";
-  if (!SELECTED_BLOB) { ok = false; msg = "Pick or record an audio sample first."; }
-  else if (!name) { ok = false; msg = "Enter a voice name."; }
+  if (!name) { ok = false; msg = "Enter a voice name."; }
   else if (!nameOk(name)) { ok = false; msg = "Allowed: letters, digits, _ - . (no leading dot)."; }
   else if (VOICE_NAMES.includes(name)) { ok = false; msg = `"${name}" already exists — pick another name.`; }
-  else { msg = `Ready to generate "${name}".`; }
-  btn.disabled = !ok;
-  hint.textContent = msg;
-  hint.style.color = ok ? "var(--ok)" : "var(--muted)";
+  else if (!have.length) { ok = false; msg = "Add at least one audio (a language slot or fallback)."; }
+  else { msg = `Ready: ${have.map((k) => k || "fallback").join(", ")}.`; }
+  if (btn) btn.disabled = !ok;
+  if (hint) { hint.textContent = msg; hint.style.color = ok ? "var(--ok)" : "var(--muted)"; }
 }
 
-document.getElementById("upload-name").addEventListener("input", validateGenerate);
-
-const dz = document.getElementById("dropzone");
-const fileInput = document.getElementById("file-input");
-dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("dragover"); };
-dz.ondragleave = () => dz.classList.remove("dragover");
-dz.ondrop = (e) => {
-  e.preventDefault(); dz.classList.remove("dragover");
-  const f = e.dataTransfer.files[0];
-  if (f) {
-    setSample(f, f.name, f.name);
-    // pre-fill the name from the filename stem if the field is empty
-    const nm = document.getElementById("upload-name");
-    if (!nm.value.trim()) { nm.value = f.name.replace(/\.[^.]+$/, ""); validateGenerate(); }
-  }
-};
-fileInput.onchange = () => {
-  const f = fileInput.files[0];
-  if (f) {
-    setSample(f, f.name, f.name);
-    const nm = document.getElementById("upload-name");
-    if (!nm.value.trim()) { nm.value = f.name.replace(/\.[^.]+$/, ""); validateGenerate(); }
-  }
-};
-
-document.getElementById("generate-btn").onclick = () => {
-  if (!SELECTED_BLOB) return;
-  const name = document.getElementById("upload-name").value.trim();
-  uploadBlob(SELECTED_BLOB, SELECTED_FILENAME, name);
-  // reset selection so it can't be double-submitted
-  SELECTED_BLOB = null; SELECTED_FILENAME = "";
-  document.getElementById("selected-file").textContent = "— none yet —";
-  document.getElementById("selected-file").classList.add("muted");
-  document.getElementById("generate-btn").disabled = true;
-};
-
-// mic recording → sets the sample (does NOT auto-upload; user clicks Generate)
+// recording into a specific slot (one recorder, retargeted per slot button)
 let mediaRecorder = null, chunks = [];
-const micBtn = document.getElementById("mic-btn");
-if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia ||
-    !window.isSecureContext) {
-  document.getElementById("mic-hint").hidden = false;
-}
-micBtn.onclick = async () => {
+const micUnavailable = !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia ||
+    !window.isSecureContext;
+if (micUnavailable) document.getElementById("mic-hint").hidden = false;
+
+async function toggleRecord(key, btn) {
   if (mediaRecorder && mediaRecorder.state === "recording") { mediaRecorder.stop(); return; }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -261,20 +226,77 @@ micBtn.onclick = async () => {
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach((t) => t.stop());
       const blob = new Blob(chunks, { type: "audio/webm" });
-      setSample(blob, "recording.webm", "microphone recording");
-      micBtn.classList.remove("recording");
-      micBtn.textContent = "● Record from mic";
-      document.getElementById("mic-status").textContent = "Recorded — now name it and click Generate.";
+      setSlot(key, blob, "recording" + (key ? "." + key : "") + ".webm");
+      btn.classList.remove("recording"); btn.textContent = "● rec";
     };
     mediaRecorder.start();
-    micBtn.classList.add("recording");
-    micBtn.textContent = "■ Stop recording";
-    document.getElementById("mic-status").textContent = "Recording… speak 10–30 s.";
+    btn.classList.add("recording"); btn.textContent = "■ stop";
   } catch (e) {
     document.getElementById("mic-hint").hidden = false;
-    document.getElementById("mic-status").textContent = "Mic blocked (needs https/localhost).";
   }
+}
+
+// build the per-language slot rows
+function buildSlots() {
+  const host = document.getElementById("lang-slots");
+  if (!host) return;
+  host.innerHTML = LANG_SLOTS.map((s) => {
+    const id = s.key || "fb";
+    return `<div class="slot">
+      <span class="slot-lang">${s.label}${s.key ? ` <code>${s.key}</code>` : ""}</span>
+      <label class="link">file<input type="file" accept="audio/*" hidden data-slot="${s.key}" /></label>
+      <button class="rec" data-rec="${s.key}"${micUnavailable ? " disabled" : ""}>● rec</button>
+      <span class="slot-status" id="slot-status-${id}">—</span>
+      <button class="clr" data-clr="${s.key}" title="clear">✕</button>
+    </div>`;
+  }).join("");
+  host.querySelectorAll('input[type="file"]').forEach((inp) => {
+    inp.onchange = () => { const f = inp.files[0]; if (f) setSlot(inp.dataset.slot, f, f.name); inp.value = ""; };
+  });
+  host.querySelectorAll("[data-clr]").forEach((b) => { b.onclick = () => clearSlot(b.dataset.clr); });
+  host.querySelectorAll("[data-rec]").forEach((b) => { b.onclick = () => toggleRecord(b.dataset.rec, b); });
+}
+
+document.getElementById("upload-name").addEventListener("input", validateGenerate);
+
+document.getElementById("generate-btn").onclick = async () => {
+  const name = document.getElementById("upload-name").value.trim();
+  const keys = Object.keys(SLOTS);
+  if (!name || !keys.length) return;
+  const status = document.getElementById("upload-status");
+  document.getElementById("generate-btn").disabled = true;
+  status.innerHTML = "⏳ Uploading…";
+  for (const key of keys) {
+    const s = SLOTS[key];
+    let r;
+    try { r = await uploadOne(s.blob, s.filename, name, key); }
+    catch (e) { status.innerHTML = "❌ Upload failed."; return; }
+    if (!r.ok) { let j = {}; try { j = await r.json(); } catch (e) {}
+      status.innerHTML = "❌ Error: " + (j.detail || r.status); return; }
+  }
+  LANG_SLOTS.forEach((s) => clearSlot(s.key));
+  status.innerHTML = `⏳ Embedding "<b>${name}</b>"… ~30 s per language (longer on CPU).`;
+  let waited = 0;
+  const poll = setInterval(async () => {
+    waited += 3;
+    const now = await currentVoiceNames();
+    if (now.includes(name)) {
+      clearInterval(poll);
+      status.innerHTML = `✅ Voice "<b>${name}</b>" is ready.`;
+      refreshVoices();
+      document.getElementById("upload-name").value = "";
+    } else if (waited >= 120) {
+      clearInterval(poll);
+      status.innerHTML = `⚠️ "<b>${name}</b>" didn't appear after 120 s. Check the server log — ` +
+        `the audio may be too short/noisy, or (for cloning) you may need an HF token in Settings.`;
+      refreshVoices();
+    } else {
+      status.innerHTML = `⏳ Embedding "<b>${name}</b>"… (${waited}s)`;
+    }
+  }, 3000);
 };
+
+buildSlots();
 
 // quick test synth
 document.getElementById("test-btn").onclick = async () => {

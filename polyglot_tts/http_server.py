@@ -294,6 +294,7 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
     async def add_voice(
         file: UploadFile = File(...),
         name: str | None = Form(None),
+        language: str | None = Form(None),
     ) -> dict:
         if voices_extra_dir is None:
             raise HTTPException(503, "Voice management is disabled "
@@ -301,6 +302,10 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
         # Determine target name
         if not name:
             stem = Path(file.filename or "").stem
+            # Strip a language tag a dropped file may already carry
+            # ("Sophie.de" → "Sophie") so it isn't baked into the voice name.
+            from .voice_loader import split_voice_lang
+            stem, _ = split_voice_lang(stem)
             if not stem:
                 raise HTTPException(400, "No voice name provided")
             name = stem
@@ -309,10 +314,20 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
             raise HTTPException(400, "Invalid voice name "
                                      "(allowed: A-Z, a-z, 0-9, _, -, .; "
                                      "no leading dot; no '..')")
+        # Optional per-language reference: store as "<name>.<bcp47>.<ext>" so the
+        # loader couples it to that language model (accent-free multilingual).
+        lang_tag = ""
+        if language:
+            from .voice_loader import _known_lang_tags
+            language = language.strip().lower()
+            if language not in _known_lang_tags():
+                raise HTTPException(400, f"Unknown language tag '{language}' "
+                                         "(use a bcp47 code like de/en/fr).")
+            lang_tag = f".{language}"
         # Stream upload to disk with a hard size cap. Doesn't buffer the
         # whole payload in RAM — protects 4 GB hosts (HA Green / Pi).
         suffix = Path(file.filename or ".wav").suffix.lower() or ".wav"
-        target = voices_extra_dir / f"{name}{suffix}"
+        target = voices_extra_dir / f"{name}{lang_tag}{suffix}"
         # Resolve final path is under voices-extra (belt-and-braces vs symlinks)
         try:
             resolved = target.resolve()
@@ -357,18 +372,23 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
             raise HTTPException(400, "Invalid voice name")
         # Remove from registry immediately
         core.remove_voice(name)
-        # Delete source file(s) if present — watcher will also catch this.
-        # Iterate over AUDIO_EXT for consistency with the upload path.
-        from .voice_loader import AUDIO_EXT
-        for suffix in AUDIO_EXT:
-            p = voices_extra_dir / f"{name}{suffix}"
-            if p.exists():
-                # Final safety: don't unlink a symlink that points outside.
-                try:
-                    p.resolve().relative_to(voices_extra_dir.resolve())
-                except (ValueError, OSError):
-                    continue
-                p.unlink()
+        # Delete ALL source files of this voice — the untagged file AND any
+        # per-language `<name>.<bcp47>.<ext>` references — plus stale .error
+        # sidecars. (Watcher would otherwise re-embed a leftover language file.)
+        from .voice_loader import AUDIO_EXT, parse_voice_file
+        voices_resolved = voices_extra_dir.resolve()
+        for p in list(voices_extra_dir.iterdir()):
+            if not p.is_file() or p.suffix.lower() not in AUDIO_EXT:
+                continue
+            if parse_voice_file(p)[0] != name:
+                continue
+            # Final safety: don't unlink a symlink that points outside.
+            try:
+                p.resolve().relative_to(voices_resolved)
+            except (ValueError, OSError):
+                continue
+            p.unlink(missing_ok=True)
+            p.with_suffix(p.suffix + ".error").unlink(missing_ok=True)
         return Response(status_code=204)
 
     @app.post("/v1/audio/speech")

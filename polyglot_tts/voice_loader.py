@@ -239,6 +239,7 @@ def reload_voice(core, voices_dir: Path, voice_name: str) -> int:
     per_lang = build_voice_states(files, core)
     if per_lang:
         core.add_voice(voice_name, per_lang)
+        core.set_voice_sources(voice_name, {l: p.name for l, p in files.items()})
     return len(per_lang)
 
 
@@ -264,6 +265,7 @@ def load_voices_from_dir(voices_dir: Path, core) -> int:
             continue
         if per_lang:
             core.add_voice(name, per_lang)
+            core.set_voice_sources(name, {l: p.name for l, p in files.items()})
             count += 1
     return count
 

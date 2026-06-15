@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Polyglot TTS</title>
-  <link rel="stylesheet" href="/ui/static/style.css?v=073" />
+  <link rel="stylesheet" href="/ui/static/style.css?v=080" />
 </head>
 <body>
   <header>
@@ -50,30 +50,20 @@
     <section id="voices" class="tab" hidden>
       <div class="card">
         <h3>Add a voice</h3>
-        <ol class="steps">
-          <li><b>1.</b> Pick an audio sample (drop a file, browse, or record).</li>
-          <li><b>2.</b> Give it a name that doesn't already exist.</li>
-          <li><b>3.</b> Click <b>Generate voice</b>.</li>
-        </ol>
-        <div id="dropzone">Drop an audio file here, or
-          <label class="link">browse<input id="file-input" type="file" accept="audio/*" hidden /></label>
-        </div>
+        <p class="muted">For an <b>accent-free multilingual</b> voice, give one
+          reference per language (10–30 s each). Or just fill <b>Fallback</b> for a
+          quick single-sample voice that's used for every language.</p>
         <div class="row">
-          <button id="mic-btn">● Record from mic</button>
-          <span id="mic-status" class="muted"></span>
+          <input id="upload-name" placeholder="voice name (required)" autocomplete="off" />
         </div>
+        <p id="name-hint" class="field-help"></p>
+        <div id="lang-slots"></div>
         <p id="mic-hint" class="muted hint" hidden>
           Microphone needs a secure context. Open this page over
           <code>https://</code> or <code>http://localhost</code> — over a plain
           <code>http://&lt;lan-ip&gt;</code> the browser blocks the mic. See
           docs/WEB_UI.md for a reverse-proxy setup.
         </p>
-        <div class="row"><span class="muted">Selected sample:</span>
-          <span id="selected-file" class="muted">— none yet —</span></div>
-        <div class="row">
-          <input id="upload-name" placeholder="voice name (required)" autocomplete="off" />
-        </div>
-        <p id="name-hint" class="field-help"></p>
         <div class="row">
           <button id="generate-btn" disabled>Generate voice</button>
         </div>
@@ -129,6 +119,6 @@
     </section>
   </main>
 
-  <script src="/ui/static/app.js?v=073"></script>
+  <script src="/ui/static/app.js?v=080"></script>
 </body>
 </html>

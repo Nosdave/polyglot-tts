@@ -111,6 +111,9 @@ class PolyglotCore:
             raise ValueError("PolyglotCore requires at least one loaded model")
         self.models = models
         self.voice_states = voice_states
+        # {voice_name: {bcp47-or-None: filename}} — which reference file backs
+        # each language (None = untagged fallback). Populated by the file loader.
+        self.voice_sources: dict[str, dict] = {}
         self.default_voice = default_voice
         self.advertised_bcp47 = advertised_bcp47
         self.voices_extra_dir = voices_extra_dir
@@ -213,6 +216,7 @@ class PolyglotCore:
         with self._voice_lock:
             existed = voice_name in self.voice_states
             self.voice_states.pop(voice_name, None)
+            self.voice_sources.pop(voice_name, None)
         if existed:
             _LOGGER.info("Voice removed: %s", voice_name)
         return existed
@@ -223,14 +227,48 @@ class PolyglotCore:
             custom = list(self.voice_states.keys())
         return sorted(set(ALL_PRESET_VOICES) | set(custom))
 
+    def set_voice_sources(self, voice_name: str, sources: dict) -> None:
+        """Record which reference file backs each language of a voice.
+
+        `sources` maps bcp47-or-None -> filename (None = the untagged fallback
+        file). Lets the UI show whether a language has its own audio (accent-
+        free) or shares the fallback embedding. Set by the file loader/watcher.
+        """
+        with self._voice_lock:
+            self.voice_sources[voice_name] = dict(sources)
+
     def voice_info(self) -> list[dict]:
-        """Structured voice list for /v1/audio/voices endpoint."""
+        """Structured voice list for /v1/audio/voices endpoint.
+
+        Each entry: {name, kind, languages: [{bcp47, dedicated}], per_language}.
+        `dedicated` is True when that language has its OWN reference file
+        (`<voice>.<bcp47>.<ext>`); False when it shares the untagged fallback.
+        """
         result = []
         with self._voice_lock:
-            custom = set(self.voice_states.keys())
+            states = {n: set(s.keys()) for n, s in self.voice_states.items()}
+            sources = {n: dict(s) for n, s in self.voice_sources.items()}
+        custom = set(states.keys())
+        loaded_bcp = [self.checkpoint_bcp47[c] for c in self.models]
         for v in sorted(set(ALL_PRESET_VOICES) | custom):
-            kind = "custom" if v in custom else "preset"
-            result.append({"name": v, "kind": kind})
+            if v in custom:
+                src = sources.get(v, {})
+                langs = [
+                    {"bcp47": self.checkpoint_bcp47[c],
+                     "dedicated": self.checkpoint_bcp47[c] in src}
+                    for c in self.models if c in states[v]
+                ]
+                result.append({
+                    "name": v, "kind": "custom", "languages": langs,
+                    "per_language": any(l["dedicated"] for l in langs),
+                })
+            else:
+                result.append({
+                    "name": v, "kind": "preset",
+                    "languages": [{"bcp47": b, "dedicated": False}
+                                  for b in loaded_bcp],
+                    "per_language": False,
+                })
         return result
 
     # ── Encoding helper for new voices (called by file-watcher) ────────────
