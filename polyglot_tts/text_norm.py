@@ -193,6 +193,12 @@ _TIME_CONNECTOR: Final[dict[str, str]] = {"de": "Uhr", "fr": "heures"}
 # → spoken separator. Languages without an entry just lose the colon.
 _RATIO_SEP: Final[dict[str, str]] = {"de": " zu ", "en": " to ", "fr": " à "}
 
+# A hyphen / en-dash / em-dash between two integers is a "von-bis" range:
+# "10-20" → "10 bis 20". The lookarounds skip dash chains (e.g. ISO "2026-06-14").
+_RANGE_SEP: Final[dict[str, str]] = {"de": "bis", "en": "to", "fr": "à",
+                                     "it": "a", "es": "a", "pt": "a"}
+_RANGE_RE: Final = re.compile(r"(?<![\d.\-–—])(\d+)\s*[-–—]\s*(\d+)(?![\d.\-–—])")
+
 _DATE_RE: Final = re.compile(r"(?<!\d)(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?(?!\d)")
 # Optionally swallow a trailing unit ("22:57 Uhr" → no doubled "Uhr").
 _TIME_RE: Final = re.compile(
@@ -287,6 +293,18 @@ def _expand_times(text: str, lang: str, n2w) -> str:
         return f"{hw} {mw}".strip()
 
     return _TIME_RE.sub(_sub, text)
+
+
+def _expand_ranges(text: str, lang: str) -> str:
+    """A hyphen / en- / em-dash between two integers → spoken range:
+    "10-20" → "10 bis 20" (de) / "10 to 20" (en) / "10 à 20" (fr). Runs BEFORE
+    the punctuation map turns dashes into commas; skips dash chains (ISO dates).
+    Leaves the digits for the later number step to read as words.
+    """
+    word = _RANGE_SEP.get(lang)
+    if not word:
+        return text
+    return _RANGE_RE.sub(lambda m: f"{m.group(1)} {word} {m.group(2)}", text)
 
 
 def _expand_symbols(text: str, lang: str) -> str:
@@ -691,6 +709,10 @@ def normalize(text: str, lang: str = "de") -> str:
     # come AFTER the markdown strip (bullets gone, newlines still present) and
     # BEFORE the whitespace-collapse that would erase the line structure.
     out = _terminate_lines(out)
+
+    # 3d: Numeric ranges "10-20" / "10–20" → "10 bis 20" BEFORE the punctuation
+    # map turns en/em-dashes into commas (and before the number step).
+    out = _expand_ranges(out, lang)
 
     # 4: Punctuation / special character map
     for k, v in _PUNCT_MAP.items():

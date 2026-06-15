@@ -31,7 +31,10 @@ All notable changes will be documented here. Semantic versioning.
   False-positive guards: a `DD.MM` is treated as a date only when the day is > 12
   or a 4-digit year is present, so a version like `Mistral 3.5.` stays
   „drei Komma fünf" (not „dritter Mai"); a non-time `digit:digit` colon is a
-  score/ratio (`2:1` → „zwei zu eins", `16:9` → „sechzehn zu neun").
+  score/ratio (`2:1` → „zwei zu eins", `16:9` → „sechzehn zu neun"); and a
+  hyphen/en-/em-dash between two integers as a range (`10-20` → „zehn bis zwanzig"
+  / „ten to twenty" / „dix à vingt"), while a spaced dash between words stays a
+  comma pause.
 - **Locale-aware number parsing.** de/fr/es/it/pt read `.` as the thousands
   separator and `,` as the decimal point (`1.000` → „eintausend", `1.250.000` →
   „eine Million …", `14,06` → „vierzehn Komma null sechs"); English keeps the
