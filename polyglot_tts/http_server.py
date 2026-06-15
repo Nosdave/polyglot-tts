@@ -288,7 +288,12 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
 
     @app.get("/v1/audio/voices")
     async def list_voices() -> dict:
-        return {"voices": core.voice_info()}
+        # `languages` = all loaded language codes, so the UI can show a voice's
+        # coverage across *every* available language (incl. ones it's missing).
+        return {
+            "voices": core.voice_info(),
+            "languages": [core.checkpoint_bcp47[c] for c in core.models],
+        }
 
     @app.post("/v1/audio/voices", status_code=201)
     async def add_voice(

@@ -144,12 +144,17 @@ code { background: #0d1117; padding: 1px 5px; border-radius: 4px; }
   padding: 2px 5px; border-radius: 4px; border: 1px solid var(--border);
   color: var(--muted); background: #0d1117; text-transform: uppercase; }
 .lng.ded { color: #fff; border-color: var(--accent); background: #11233a; }
+.lng.miss { opacity: 0.3; text-decoration: line-through; }
 .poly { color: var(--accent); font-size: 0.8rem; }
 
 /* per-language cloning slots */
 #lang-slots { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
 .slot { display: flex; align-items: center; gap: 8px; background: #0d1117;
   border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
+.slot .fb { flex: 0 0 48px; margin: 0; cursor: pointer; }
+.slot-head { background: transparent; border: none; padding: 0 9px 2px;
+  color: var(--muted); font-size: 0.7rem; text-transform: uppercase; }
+.slot-head .fb-col { flex: 0 0 48px; }
 .slot-lang { flex: 1; font-size: 0.85rem; }
 .slot-lang code { font-size: 0.72rem; }
 .slot .rec { font-size: 0.78rem; padding: 3px 8px; }

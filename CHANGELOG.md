@@ -6,15 +6,17 @@ All notable changes will be documented here. Semantic versioning.
 
 ### Added
 
-- **Web UI: per-language voice management.** The voice list now shows each voice's
-  language coverage as bcp47 badges — a solid badge means that language has its own
-  reference audio (accent-free), a faint one means it shares the untagged fallback;
-  a ◆ marks a true multilingual voice. The "Add a voice" card now has one
-  upload-or-record slot per supported language (de/en/fr/it/es/pt) plus a Fallback
-  slot, so a single voice can be cloned natively in several languages at once.
-  `GET /v1/audio/voices` gained `languages: [{bcp47, dedicated}]` and `per_language`;
-  `POST /v1/audio/voices` accepts a `language` form field (saved as
-  `<voice>.<bcp47>.<ext>`); `DELETE` now removes every per-language file of a voice.
+- **Web UI: per-language voice management.** The voice list shows each voice's
+  coverage across **every available language** as bcp47 badges — solid = its own
+  reference audio (accent-free), faint = shares the fallback, struck-through = not
+  covered; a ◆ marks a true multilingual voice. The "Add a voice" card has one
+  upload-or-record slot per supported language (de/en/fr/it/es/pt); fill one, two,
+  or all, then mark one slot as the **fallback** (a radio) whose recording is reused
+  for the languages left empty. `GET /v1/audio/voices` gained
+  `languages: [{bcp47, dedicated}]` + `per_language` per voice and a top-level
+  `languages` (loaded codes); `POST /v1/audio/voices` accepts a `language` form
+  field (saved as `<voice>.<bcp47>.<ext>`); `DELETE` removes every per-language
+  file of a voice.
 
 - **Text normalization for dates, clock times, numbered lists and `=`.** Before
   the generic number step, `text_norm` now expands: numeric dates `DD.MM[.]`

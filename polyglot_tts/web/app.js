@@ -106,7 +106,6 @@ let CHECKPOINTS = [];
 // ── voices ──────────────────────────────────────────────────────────────────
 // One upload slot per language the engine can speak, plus an untagged fallback.
 const LANG_SLOTS = [
-  { key: "",   label: "Fallback (all languages)" },
   { key: "de", label: "Deutsch" },
   { key: "en", label: "English" },
   { key: "fr", label: "Français" },
@@ -114,13 +113,23 @@ const LANG_SLOTS = [
   { key: "es", label: "Español" },
   { key: "pt", label: "Português" },
 ];
-const SLOTS = {};   // lang-key -> {blob, filename}
+const SLOTS = {};        // lang-key -> {blob, filename}
+let FALLBACK_KEY = "";   // which slot's audio also serves the untagged fallback
+let AVAILABLE_LANGS = [];
 
+// A chip for EVERY available language: solid = own audio, faint = shared
+// fallback, struck = not covered by this voice.
 function langBadges(v) {
-  if (!v.languages || !v.languages.length) return "";
-  const chips = v.languages.map((l) =>
-    `<span class="lng ${l.dedicated ? "ded" : ""}" title="${l.dedicated ? "own reference audio" : "shared fallback audio"}">${l.bcp47}</span>`
-  ).join("");
+  const have = {};
+  (v.languages || []).forEach((l) => { have[l.bcp47] = l.dedicated; });
+  const set = AVAILABLE_LANGS.length ? AVAILABLE_LANGS : Object.keys(have);
+  const chips = set.map((b) => {
+    const has = b in have;
+    const cls = !has ? "miss" : (have[b] ? "ded" : "");
+    const t = !has ? "not available for this voice"
+      : (have[b] ? "own reference audio" : "shared fallback audio");
+    return `<span class="lng ${cls}" title="${t}">${b}</span>`;
+  }).join("");
   const star = v.per_language
     ? ` <span class="poly" title="multilingual — a separate reference per language">◆</span>` : "";
   return `<span class="langs">${chips}${star}</span>`;
@@ -131,6 +140,7 @@ async function refreshVoices() {
   if (!r.ok) return;
   const data = await r.json();
   const voices = data.voices || [];
+  if (data.languages && data.languages.length) AVAILABLE_LANGS = data.languages;
   VOICE_NAMES = voices.map((v) => v.name);
   if (typeof validateGenerate === "function") validateGenerate();
   document.getElementById("voice-count").textContent = `(${voices.length})`;
@@ -176,10 +186,14 @@ function nameOk(s) {
 
 function slotEl(key) { return document.getElementById("slot-status-" + (key || "fb")); }
 
+function fbRadio(key) { return document.querySelector(`input.fb[value="${key}"]`); }
+
 function setSlot(key, blob, filename) {
   SLOTS[key] = { blob, filename };
   const st = slotEl(key);
   if (st) { st.textContent = "✓ " + filename; st.classList.add("set"); }
+  const rb = fbRadio(key);
+  if (rb) { rb.disabled = false; if (!FALLBACK_KEY) { rb.checked = true; FALLBACK_KEY = key; } }
   // pre-fill the voice name from the first file's stem (minus any lang tag)
   const nm = document.getElementById("upload-name");
   if (!nm.value.trim()) {
@@ -192,6 +206,13 @@ function clearSlot(key) {
   delete SLOTS[key];
   const st = slotEl(key);
   if (st) { st.textContent = "—"; st.classList.remove("set"); }
+  const rb = fbRadio(key);
+  if (rb) { rb.disabled = true; rb.checked = false; }
+  if (FALLBACK_KEY === key) {            // re-point the fallback to another filled slot
+    FALLBACK_KEY = Object.keys(SLOTS)[0] || "";
+    const nrb = FALLBACK_KEY && fbRadio(FALLBACK_KEY);
+    if (nrb) nrb.checked = true;
+  }
   validateGenerate();
 }
 
@@ -204,8 +225,11 @@ function validateGenerate() {
   if (!name) { ok = false; msg = "Enter a voice name."; }
   else if (!nameOk(name)) { ok = false; msg = "Allowed: letters, digits, _ - . (no leading dot)."; }
   else if (VOICE_NAMES.includes(name)) { ok = false; msg = `"${name}" already exists — pick another name.`; }
-  else if (!have.length) { ok = false; msg = "Add at least one audio (a language slot or fallback)."; }
-  else { msg = `Ready: ${have.map((k) => k || "fallback").join(", ")}.`; }
+  else if (!have.length) { ok = false; msg = "Add audio for at least one language."; }
+  else {
+    const fb = FALLBACK_KEY ? ` · fallback: ${FALLBACK_KEY}` : "";
+    msg = `Ready: ${have.join(", ")}${fb}.`;
+  }
   if (btn) btn.disabled = !ok;
   if (hint) { hint.textContent = msg; hint.style.color = ok ? "var(--ok)" : "var(--muted)"; }
 }
@@ -236,25 +260,31 @@ async function toggleRecord(key, btn) {
   }
 }
 
-// build the per-language slot rows
+// build the per-language slot rows; one can be marked as the fallback
 function buildSlots() {
   const host = document.getElementById("lang-slots");
   if (!host) return;
-  host.innerHTML = LANG_SLOTS.map((s) => {
-    const id = s.key || "fb";
-    return `<div class="slot">
-      <span class="slot-lang">${s.label}${s.key ? ` <code>${s.key}</code>` : ""}</span>
+  host.innerHTML =
+    `<div class="slot slot-head">
+       <span class="fb-col" title="this recording is reused for the languages you don't fill">fallback</span>
+       <span class="slot-lang">language</span></div>` +
+    LANG_SLOTS.map((s) => `<div class="slot">
+      <input type="radio" name="fb-radio" class="fb" value="${s.key}" disabled
+             title="use this recording as the fallback for the other languages" />
+      <span class="slot-lang">${s.label} <code>${s.key}</code></span>
       <label class="link">file<input type="file" accept="audio/*" hidden data-slot="${s.key}" /></label>
       <button class="rec" data-rec="${s.key}"${micUnavailable ? " disabled" : ""}>● rec</button>
-      <span class="slot-status" id="slot-status-${id}">—</span>
+      <span class="slot-status" id="slot-status-${s.key}">—</span>
       <button class="clr" data-clr="${s.key}" title="clear">✕</button>
-    </div>`;
-  }).join("");
+    </div>`).join("");
   host.querySelectorAll('input[type="file"]').forEach((inp) => {
     inp.onchange = () => { const f = inp.files[0]; if (f) setSlot(inp.dataset.slot, f, f.name); inp.value = ""; };
   });
   host.querySelectorAll("[data-clr]").forEach((b) => { b.onclick = () => clearSlot(b.dataset.clr); });
   host.querySelectorAll("[data-rec]").forEach((b) => { b.onclick = () => toggleRecord(b.dataset.rec, b); });
+  host.querySelectorAll("input.fb").forEach((rb) => {
+    rb.onchange = () => { FALLBACK_KEY = rb.value; validateGenerate(); };
+  });
 }
 
 document.getElementById("upload-name").addEventListener("input", validateGenerate);
@@ -274,7 +304,14 @@ document.getElementById("generate-btn").onclick = async () => {
     if (!r.ok) { let j = {}; try { j = await r.json(); } catch (e) {}
       status.innerHTML = "❌ Error: " + (j.detail || r.status); return; }
   }
+  // the chosen recording also serves as the untagged fallback for any language
+  // the user didn't fill (saved as "<name>.<ext>").
+  if (FALLBACK_KEY && SLOTS[FALLBACK_KEY]) {
+    const s = SLOTS[FALLBACK_KEY];
+    try { await uploadOne(s.blob, s.filename, name, ""); } catch (e) {}
+  }
   LANG_SLOTS.forEach((s) => clearSlot(s.key));
+  FALLBACK_KEY = "";
   status.innerHTML = `⏳ Embedding "<b>${name}</b>"… ~30 s per language (longer on CPU).`;
   let waited = 0;
   const poll = setInterval(async () => {
