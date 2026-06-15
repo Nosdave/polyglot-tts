@@ -50,6 +50,7 @@ from .core import (
     ALL_PRESET_VOICES,
     BCP47_TO_CHECKPOINT,
     CHANNELS,
+    FRAMES_AFTER_EOS,
     LANGUAGE_TO_BCP47,
     SAMPLE_RATE,
     SAMPLE_WIDTH,
@@ -416,9 +417,11 @@ class PocketTTSEventHandler(AsyncEventHandler):
         Each yielded Mimi-frame is split into Wyoming AudioChunks of
         CHUNK_SAMPLES samples (~42 ms @ 24 kHz mono 16-bit).
 
-        v1.5.5 — Mukser-Fix für kurze Antworten:
-        (a) `frames_after_eos=6` für Texte < 5 Wörter (default 5 zu wenig
-            → FlowLM EOS-Frühzündung schneidet das letzte Wort ab)
+        v1.5.5 / tail-fix — Mukser-Fix:
+        (a) `frames_after_eos=FRAMES_AFTER_EOS` (default 8) für ALLE Texte —
+            FlowLM zündet EOS leicht zu früh und schneidet sonst das letzte Wort
+            ab (auch bei mittleren Sätzen, nicht nur < 5 Wörter). Env-tunbar via
+            POCKET_TTS_FRAMES_AFTER_EOS.
         (b) `pad_with_spaces_for_short_inputs=True` temporär aktiviert für
             kurze Texte (8 Leerzeichen vor dem Text → mehr Token-Context)
         (c) Linear Fade-In auf das erste Mimi-Frame (120 Samples ~5 ms)
@@ -450,10 +453,12 @@ class PocketTTSEventHandler(AsyncEventHandler):
         word_count = len((text or "").split())
         is_short = word_count < 5
 
-        # Build kwargs for generate_audio_stream
-        stream_kwargs: dict = {}
-        if is_short:
-            stream_kwargs["frames_after_eos"] = 6  # default 3+2=5 was too short
+        # Build kwargs for generate_audio_stream. frames_after_eos is applied to
+        # ALL texts now (universal tail-clip fix) — the old code only set it for
+        # < 5-word texts, so medium sentences like "Der Rolladen … wurde
+        # geschlossen." lost their final word. pad_with_spaces stays short-only
+        # (that's an onset fix, a separate concern).
+        stream_kwargs: dict = {"frames_after_eos": FRAMES_AFTER_EOS}
 
         sentinel = object()
         fade_n = 120  # ~5 ms @ 24 kHz linear fade-in (masks Issue #171 click)

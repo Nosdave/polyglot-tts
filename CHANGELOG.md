@@ -57,6 +57,21 @@ All notable changes will be documented here. Semantic versioning.
   whole voice from its current files on any add/replace/delete. See
   `docs/CONFIGURATION.md`.
 
+### Fixed
+
+- **Clipped final word of a sentence (tail truncation).** FlowLM fires its
+  end-of-speech token slightly early, so the last acoustic-delay frames were
+  never rendered — e.g. „Der Rolladen … wurde geschlossen." came out as
+  „… gesch". A `frames_after_eos` tail budget already existed but was applied
+  **only to texts under 5 words** on the Wyoming path and **not at all** on the
+  HTTP path, so medium sentences slipped through. It is now applied universally
+  on both paths, default **8** (empirically: 5 still clipped ~40 % of medium
+  sentences, 8 ≈ none; values that are too high make the vocoder render a loud
+  click past EOS, so it is bounded to [3, 32]). Tunable via
+  `POCKET_TTS_FRAMES_AFTER_EOS`, and per request on `/v1/audio/speech` via a new
+  `frames_after_eos` field. The onset `pad_with_spaces_for_short_inputs` stays
+  short-text-only (a separate concern).
+
 ### Changed
 
 - **Use jemalloc to reclaim CPU RAM after model load.** The 4-stage weight load

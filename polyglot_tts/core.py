@@ -53,6 +53,28 @@ SAMPLE_RATE = 24000
 SAMPLE_WIDTH = 2
 CHANNELS = 1
 
+# Frames the vocoder keeps rendering AFTER the LM emits end-of-speech. pocket-tts'
+# default (5) intermittently clips the final word of a sentence — FlowLM fires the
+# EOS token a touch early, so the acoustic-delay frames still in the pipeline are
+# never rendered. A slightly larger budget flushes them into the natural decay.
+# Applied universally on BOTH the Wyoming and HTTP paths (the old fix only covered
+# texts < 5 words). Env-tunable, bounded so a bad value can't balloon latency.
+FRAMES_AFTER_EOS_MIN, FRAMES_AFTER_EOS_MAX, FRAMES_AFTER_EOS_DEFAULT = 3, 32, 8
+
+
+def clamp_frames_after_eos(raw, default: int = FRAMES_AFTER_EOS_DEFAULT) -> int:
+    """Parse + clamp a frames-after-EOS value into [MIN, MAX]. Bad/empty input
+    returns `default`. Accepts int, float, or string."""
+    try:
+        val = int(float(str(raw)))
+    except (ValueError, TypeError):
+        return default
+    return max(FRAMES_AFTER_EOS_MIN, min(FRAMES_AFTER_EOS_MAX, val))
+
+
+FRAMES_AFTER_EOS = clamp_frames_after_eos(
+    os.environ.get("POCKET_TTS_FRAMES_AFTER_EOS"))
+
 # Sampling temperature bounds. pocket-tts stores `temp` as a plain mutable
 # attribute on the model and reads it live at every decode step, so it can be
 # changed at runtime (globally or per request) without reloading the model.

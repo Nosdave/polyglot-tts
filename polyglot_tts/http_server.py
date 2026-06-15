@@ -48,11 +48,13 @@ from . import __version__
 from .core import (
     BCP47_TO_CHECKPOINT,
     CHANNELS,
+    FRAMES_AFTER_EOS,
     LANGUAGE_TO_BCP47,
     SAMPLE_RATE,
     SAMPLE_WIDTH,
     PolyglotCore,
     auto_lid_enabled,
+    clamp_frames_after_eos,
 )
 from .text_norm import normalize as normalize_text
 from .timing_server import update_timing
@@ -81,6 +83,10 @@ class SpeechRequest(BaseModel):
     # Per-request output gain (linear, 0.0–4.0). Overrides the global gain for
     # this one call; clipped to [-1, 1] after scaling. Omit to use the global.
     gain: float | None = None
+    # Per-request frames-after-EOS (tail budget; clamped to [3, 32]). Larger =
+    # less chance of clipping the final word, at the cost of a little trailing
+    # silence. Omit to use the configured default.
+    frames_after_eos: int | None = None
     # OpenAI fields we accept but currently ignore (kept for client compat)
     speed: float | None = None
     instructions: str | None = None
@@ -133,10 +139,11 @@ def _resolve_checkpoint(core: PolyglotCore, lang_hint: str | None,
     return core.default_bcp47, core.default_checkpoint
 
 
-def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
+def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,  # noqa: PLR0913
                     lang_hint: str | None,
                     temperature: float | None = None,
-                    gain: float | None = None) -> tuple[np.ndarray, str]:
+                    gain: float | None = None,
+                    frames_after_eos: int | None = None) -> tuple[np.ndarray, str]:
     """Run model inference end-to-end, return (float32 mono samples @ 24kHz, lang).
 
     Acquires the shared per-model lock around `generate_audio_stream` so two
@@ -182,6 +189,12 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
     if temperature is not None:
         override_temp = min(max(float(temperature), TEMP_MIN), TEMP_MAX)
 
+    # Tail budget: render a few extra vocoder frames after EOS so the final word
+    # isn't clipped (FlowLM fires EOS slightly early). Per-request override else
+    # the configured default.
+    eff_fae = (clamp_frames_after_eos(frames_after_eos)
+               if frames_after_eos is not None else FRAMES_AFTER_EOS)
+
     t0 = time.perf_counter()
     pcm_chunks: list[np.ndarray] = []
     model_lock = core.get_model_lock(model)
@@ -190,7 +203,8 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,
         if override_temp is not None:
             model.temp = override_temp
         try:
-            for frame in model.generate_audio_stream(state, text_norm):
+            for frame in model.generate_audio_stream(
+                    state, text_norm, frames_after_eos=eff_fae):
                 if hasattr(frame, "cpu"):
                     frame = frame.cpu().numpy()
                 pcm_chunks.append(np.asarray(frame, dtype=np.float32).reshape(-1))
@@ -403,7 +417,7 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
         try:
             pcm, lang = await asyncio.to_thread(
                 _synthesize_pcm, core, voice, req.input, req.language,
-                req.temperature, req.gain,
+                req.temperature, req.gain, req.frames_after_eos,
             )
         except HTTPException:
             raise
