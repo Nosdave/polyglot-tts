@@ -181,26 +181,24 @@ _LIST_ORDINALS: Final[dict[str, list[str]]] = {
 
 # Math / relation symbols, spoken per language. Multi-character tokens
 # ("->", "=>") MUST be applied before the bare "<"/">"/"=" — _expand_symbols
-# sorts by length so the arrow wins. An arrow ("→", "->", "=>", "⇒") is read
-# as logical implication ("daraus folgt"); a tilde before a number ("~10") is
-# an approximation (handled via _APPROX, not here).
+# sorts by length so the arrow wins. An arrow ("→", "->", "=>", "⇒") is read as
+# a directional connector ("zu"/"to"/"vers") — the most universal rendering
+# across the senses an LLM uses it in (path, mapping, sequence, implication),
+# none of which a single word fits perfectly but a direction word is never
+# jarring. A tilde before a number ("~10") is an approximation (via _APPROX).
 _SYMBOLS: Final[dict[str, dict[str, str]]] = {
-    "de": {"->": "daraus folgt", "=>": "daraus folgt", "→": "daraus folgt",
-           "⇒": "daraus folgt", "<": "kleiner als", ">": "größer als",
-           "=": "gleich"},
-    "en": {"->": "therefore", "=>": "therefore", "→": "therefore",
-           "⇒": "therefore", "<": "less than", ">": "greater than",
-           "=": "equals"},
-    "fr": {"->": "donc", "=>": "donc", "→": "donc", "⇒": "donc",
+    "de": {"->": "zu", "=>": "zu", "→": "zu", "⇒": "zu",
+           "<": "kleiner als", ">": "größer als", "=": "gleich"},
+    "en": {"->": "to", "=>": "to", "→": "to", "⇒": "to",
+           "<": "less than", ">": "greater than", "=": "equals"},
+    "fr": {"->": "vers", "=>": "vers", "→": "vers", "⇒": "vers",
            "<": "inférieur à", ">": "supérieur à", "=": "égale"},
-    "it": {"->": "quindi", "=>": "quindi", "→": "quindi", "⇒": "quindi",
+    "it": {"->": "verso", "=>": "verso", "→": "verso", "⇒": "verso",
            "<": "minore di", ">": "maggiore di", "=": "uguale"},
-    "es": {"->": "por lo tanto", "=>": "por lo tanto", "→": "por lo tanto",
-           "⇒": "por lo tanto", "<": "menor que", ">": "mayor que",
-           "=": "igual"},
-    "pt": {"->": "portanto", "=>": "portanto", "→": "portanto",
-           "⇒": "portanto", "<": "menor que", ">": "maior que",
-           "=": "igual"},
+    "es": {"->": "hacia", "=>": "hacia", "→": "hacia", "⇒": "hacia",
+           "<": "menor que", ">": "mayor que", "=": "igual"},
+    "pt": {"->": "para", "=>": "para", "→": "para", "⇒": "para",
+           "<": "menor que", ">": "maior que", "=": "igual"},
 }
 
 # "~" immediately before a number is an approximation: "~10" → "circa 10".
@@ -334,8 +332,8 @@ def _expand_ranges(text: str, lang: str) -> str:
 
 def _expand_symbols(text: str, lang: str) -> str:
     """Spoken math/relation symbols: '=' → 'gleich', '<' → 'kleiner als',
-    '>' → 'größer als', an arrow ('→', '->', '=>') → 'daraus folgt', and a
-    tilde before a number ('~10') → 'circa 10'. Multi-character tokens are
+    '>' → 'größer als', an arrow ('→', '->', '=>') → directional 'zu'/'to'/'vers',
+    and a tilde before a number ('~10') → 'circa 10'. Multi-character tokens are
     applied longest-first so '->' / '=>' win over the bare '>' / '='.
     """
     table = _SYMBOLS.get(lang)

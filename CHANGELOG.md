@@ -35,8 +35,9 @@ All notable changes will be documented here. Semantic versioning.
   hyphen/en-/em-dash between two integers as a range (`10-20` → „zehn bis zwanzig"
   / „ten to twenty" / „dix à vingt"), while a spaced dash between words stays a
   comma pause. More spoken symbols: `<` → „kleiner als" / „less than", `>` →
-  „größer als" / „greater than", an arrow (`→`, `->`, `=>`) → „daraus folgt"
-  (logical implication) / „therefore" / „donc", and a tilde before a number
+  „größer als" / „greater than", an arrow (`→`, `->`, `=>`) → a directional
+  connector „zu" / „to" / „vers" (universal across path/mapping/sequence/
+  implication senses), and a tilde before a number
   (`~10` → „circa 10" / „about 10" / „environ 10"); a lone `~` or `~~strike~~`
   is left alone. `•`/`‣`/`◦` bullets are now stripped like `-`/`*`/`+`.
 - **Locale-aware number parsing.** de/fr/es/it/pt read `.` as the thousands
