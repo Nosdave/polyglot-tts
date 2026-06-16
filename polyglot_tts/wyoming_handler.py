@@ -50,10 +50,12 @@ from .core import (
     ALL_PRESET_VOICES,
     BCP47_TO_CHECKPOINT,
     CHANNELS,
+    EOS_RETRY_THRESHOLD,
     FRAMES_AFTER_EOS,
     LANGUAGE_TO_BCP47,
     SAMPLE_RATE,
     SAMPLE_WIDTH,
+    is_collapsed,
 )
 from .text_norm import normalize as _normalize_text
 from .timing_server import update_timing
@@ -463,6 +465,62 @@ class PocketTTSEventHandler(AsyncEventHandler):
         sentinel = object()
         fade_n = 120  # ~5 ms @ 24 kHz linear fade-in (masks Issue #171 click)
 
+        async def _run(eos_override) -> tuple[float, int]:
+            """One generation pass: stream AudioChunks live and return
+            (sum_of_squares, n_samples) so the caller can detect a silent
+            collapse. Streams as it generates — no buffering, so the normal
+            path adds zero latency. Temporarily overrides model.eos_threshold
+            when given (restored after)."""
+            prev_eos = getattr(model, "eos_threshold", None)
+            if eos_override is not None:
+                model.eos_threshold = float(eos_override)
+            gen = model.generate_audio_stream(state, text, **stream_kwargs)  # type: ignore[arg-type]
+            sum_sq = 0.0
+            n_samples = 0
+            first_chunk = True
+            try:
+                while True:
+                    pcm_chunk = await loop.run_in_executor(None, next, gen, sentinel)
+                    if pcm_chunk is sentinel:
+                        break
+                    # First-Frame Fade-In gegen Mimi-ConvTranspose-Click
+                    if first_chunk and pcm_chunk.numel() >= fade_n:
+                        pcm_chunk = pcm_chunk.clone()
+                        ramp = torch.linspace(
+                            0.0, 1.0, fade_n,
+                            device=pcm_chunk.device, dtype=pcm_chunk.dtype,
+                        )
+                        pcm_chunk[:fade_n] = pcm_chunk[:fade_n] * ramp
+                        first_chunk = False
+
+                    audio_np = pcm_chunk.detach().cpu().numpy()
+                    gain = getattr(self._core, "output_gain", 1.0) if self._core else 1.0
+                    if gain != 1.0:
+                        audio_np = audio_np * gain
+                    audio_np = audio_np.clip(-1, 1)
+                    sum_sq += float((audio_np * audio_np).sum())
+                    n_samples += audio_np.size
+                    audio_bytes = (audio_np * 32767).astype("int16").tobytes()
+
+                    if self._stream_t_first_chunk is None:
+                        self._stream_t_first_chunk = time.perf_counter()
+
+                    chunk_size = CHUNK_SAMPLES * SAMPLE_WIDTH * CHANNELS
+                    for i in range(0, len(audio_bytes), chunk_size):
+                        await self.write_event(AudioChunk(
+                            audio=audio_bytes[i:i + chunk_size],
+                            rate=SAMPLE_RATE, width=SAMPLE_WIDTH, channels=CHANNELS,
+                        ).event())
+                    self._stream_audio_bytes_total += len(audio_bytes)
+            finally:
+                try:
+                    gen.close()
+                except Exception:
+                    pass
+                if eos_override is not None and prev_eos is not None:
+                    model.eos_threshold = prev_eos
+            return sum_sq, n_samples
+
         # Serialize per-model — pad-mutation + concurrent-call safety.
         # Holding the lock for the whole generator iteration also enforces
         # "1 generator per model at a time" across handler-instances.
@@ -470,51 +528,16 @@ class PocketTTSEventHandler(AsyncEventHandler):
             old_pad = getattr(model, "pad_with_spaces_for_short_inputs", False)
             if is_short:
                 model.pad_with_spaces_for_short_inputs = True
-
             try:
-                gen = model.generate_audio_stream(state, text, **stream_kwargs)  # type: ignore[arg-type]
-                first_chunk = True
-                try:
-                    while True:
-                        pcm_chunk = await loop.run_in_executor(None, next, gen, sentinel)
-                        if pcm_chunk is sentinel:
-                            break
-
-                        # pcm_chunk: torch.Tensor [n_samples], float32 in [-1, 1]
-                        # First-Frame Fade-In gegen Mimi-ConvTranspose-Click
-                        if first_chunk and pcm_chunk.numel() >= fade_n:
-                            pcm_chunk = pcm_chunk.clone()
-                            ramp = torch.linspace(
-                                0.0, 1.0, fade_n,
-                                device=pcm_chunk.device, dtype=pcm_chunk.dtype,
-                            )
-                            pcm_chunk[:fade_n] = pcm_chunk[:fade_n] * ramp
-                            first_chunk = False
-
-                        audio_np = pcm_chunk.detach().cpu().numpy()
-                        # Global output gain (live), then clip. No per-request
-                        # gain here — the Wyoming protocol has no such field.
-                        gain = getattr(self._core, "output_gain", 1.0) if self._core else 1.0
-                        if gain != 1.0:
-                            audio_np = audio_np * gain
-                        audio_np = audio_np.clip(-1, 1)
-                        audio_bytes = (audio_np * 32767).astype("int16").tobytes()
-
-                        if self._stream_t_first_chunk is None:
-                            self._stream_t_first_chunk = time.perf_counter()
-
-                        chunk_size = CHUNK_SAMPLES * SAMPLE_WIDTH * CHANNELS
-                        for i in range(0, len(audio_bytes), chunk_size):
-                            await self.write_event(AudioChunk(
-                                audio=audio_bytes[i:i + chunk_size],
-                                rate=SAMPLE_RATE, width=SAMPLE_WIDTH, channels=CHANNELS,
-                            ).event())
-                        self._stream_audio_bytes_total += len(audio_bytes)
-                finally:
-                    try:
-                        gen.close()
-                    except Exception:
-                        pass
+                sum_sq, n_samples = await _run(None)
+                # Silence-collapse retry: ultra-short inputs can hit EOS instantly
+                # and render near-silence. Then (and only then — zero latency on
+                # the normal path) retry once with a raised eos_threshold; HA gets
+                # the brief silence followed by the real audio, instead of nothing.
+                if is_collapsed(sum_sq, n_samples):
+                    _LOGGER.info("Wyoming synth collapsed to silence — retry eos=%.1f",
+                                 EOS_RETRY_THRESHOLD)
+                    await _run(EOS_RETRY_THRESHOLD)
             finally:
                 # Restore pad state for next caller
                 if is_short:

@@ -60,6 +60,23 @@ All notable changes will be documented here. Semantic versioning.
 
 ### Fixed
 
+- **Silent-collapse on ultra-short inputs (auto eos_threshold retry).** A 1–2
+  syllable phrase (e.g. French „C'est fait.") could hit pocket-tts' end-of-speech
+  threshold instantly and render near-silence — the synth came out empty. The
+  synthesiser now detects a near-silent result (mean RMS below
+  `POCKET_TTS_SILENCE_RMS`, default 0.005 — measured collapse ≈0.0005 vs real
+  speech ≥0.04, a ~50× margin) and retries **once** with a raised
+  `eos_threshold` (`POCKET_TTS_EOS_RETRY`, default 0.0; higher = the model keeps
+  generating instead of stopping early). **Latency-neutral**: the RMS is
+  accumulated from audio already generated/streamed, and the retry only runs when
+  the first attempt was silent anyway — the normal and long-sentence paths are
+  untouched (no buffering, full streaming preserved). Also adds a per-request
+  `eos_threshold` field on `/v1/audio/speech` (clamped [-12, 12]); setting it
+  disables the auto-retry for that call. Note: this fixes *empty* output, not the
+  separate cold-start onset garble on the undistilled 24-layer DE/FR checkpoints
+  (no distilled DE/FR model exists upstream — `english_2026-04` is distilled and
+  immune).
+
 - **Clipped final word of a sentence (tail truncation).** FlowLM fires its
   end-of-speech token slightly early, so the last acoustic-delay frames were
   never rendered — e.g. „Der Rolladen … wurde geschlossen." came out as

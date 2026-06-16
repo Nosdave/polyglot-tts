@@ -75,6 +75,54 @@ def clamp_frames_after_eos(raw, default: int = FRAMES_AFTER_EOS_DEFAULT) -> int:
 FRAMES_AFTER_EOS = clamp_frames_after_eos(
     os.environ.get("POCKET_TTS_FRAMES_AFTER_EOS"))
 
+
+# ── EOS threshold + silence-collapse retry ─────────────────────────────────
+# `eos_threshold` is a pocket-tts MODEL attribute (default -4.0): the model
+# emits its End-Of-Sequence token — i.e. stops speaking — once the per-step EOS
+# score crosses this value. HIGHER = more confidence required = keeps generating
+# longer. On ultra-short inputs the score crosses -4.0 almost immediately, so the
+# model stops before it speaks and renders near-silence ("C'est fait." → empty).
+# We detect that collapse (RMS below SILENCE_RMS) and retry ONCE with a raised
+# threshold so it actually speaks. Latency-neutral: the RMS is accumulated from
+# audio we already generated, and the retry only runs when the first attempt was
+# silent anyway (a previously-broken case).
+EOS_THRESHOLD_MIN, EOS_THRESHOLD_MAX, EOS_THRESHOLD_DEFAULT = -12.0, 12.0, -4.0
+
+
+def clamp_eos_threshold(raw, default: float = EOS_THRESHOLD_DEFAULT) -> float:
+    """Parse + clamp an eos_threshold into [MIN, MAX]. Bad/empty → default.
+    Accepts float or string (incl. comma decimals)."""
+    if raw is None or raw == "":
+        return default
+    try:
+        val = float(str(raw).replace(",", "."))
+    except (ValueError, TypeError):
+        return default
+    return max(EOS_THRESHOLD_MIN, min(EOS_THRESHOLD_MAX, val))
+
+
+# eos_threshold used for the silence-collapse retry (0.0 measured as the sweet
+# spot: fixes empty ultra-short outputs without the rambling that >0 causes).
+EOS_RETRY_THRESHOLD = clamp_eos_threshold(
+    os.environ.get("POCKET_TTS_EOS_RETRY"), 0.0)
+
+# Below this mean-RMS the output counts as a silent collapse (measured: collapse
+# ~0.0005, real speech ≥0.039 — a ~50× margin, so 0.005 separates cleanly).
+try:
+    SILENCE_RMS = float(os.environ.get("POCKET_TTS_SILENCE_RMS", "0.005"))
+except (ValueError, TypeError):
+    SILENCE_RMS = 0.005
+
+
+def is_collapsed(sum_sq: float, n: int) -> bool:
+    """True if the mean RMS over `n` samples (sum of squares `sum_sq`) is below
+    SILENCE_RMS — the EOS-collapse failure mode (near-empty audio). n==0 (no
+    audio at all) also counts as collapsed."""
+    if n <= 0:
+        return True
+    import math
+    return math.sqrt(sum_sq / n) < SILENCE_RMS
+
 # Sampling temperature bounds. pocket-tts stores `temp` as a plain mutable
 # attribute on the model and reads it live at every decode step, so it can be
 # changed at runtime (globally or per request) without reloading the model.

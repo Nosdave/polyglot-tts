@@ -48,13 +48,16 @@ from . import __version__
 from .core import (
     BCP47_TO_CHECKPOINT,
     CHANNELS,
+    EOS_RETRY_THRESHOLD,
     FRAMES_AFTER_EOS,
     LANGUAGE_TO_BCP47,
     SAMPLE_RATE,
     SAMPLE_WIDTH,
     PolyglotCore,
     auto_lid_enabled,
+    clamp_eos_threshold,
     clamp_frames_after_eos,
+    is_collapsed,
 )
 from .text_norm import normalize as normalize_text
 from .timing_server import update_timing
@@ -87,6 +90,10 @@ class SpeechRequest(BaseModel):
     # less chance of clipping the final word, at the cost of a little trailing
     # silence. Omit to use the configured default.
     frames_after_eos: int | None = None
+    # Per-request eos_threshold (clamped to [-12, 12]; higher = model keeps
+    # generating longer). Omit to use the model default AND the automatic
+    # silence-collapse retry; setting it explicitly disables the retry.
+    eos_threshold: float | None = None
     # OpenAI fields we accept but currently ignore (kept for client compat)
     speed: float | None = None
     instructions: str | None = None
@@ -143,7 +150,8 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,  # noqa: PLR0913
                     lang_hint: str | None,
                     temperature: float | None = None,
                     gain: float | None = None,
-                    frames_after_eos: int | None = None) -> tuple[np.ndarray, str]:
+                    frames_after_eos: int | None = None,
+                    eos_threshold: float | None = None) -> tuple[np.ndarray, str]:
     """Run model inference end-to-end, return (float32 mono samples @ 24kHz, lang).
 
     Acquires the shared per-model lock around `generate_audio_stream` so two
@@ -194,24 +202,44 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,  # noqa: PLR0913
     # the configured default.
     eff_fae = (clamp_frames_after_eos(frames_after_eos)
                if frames_after_eos is not None else FRAMES_AFTER_EOS)
+    req_eos = clamp_eos_threshold(eos_threshold) if eos_threshold is not None else None
+
+    def _gen(eos_override: float | None) -> np.ndarray:
+        """One generation pass. Temporarily overrides model.eos_threshold when
+        given (restored after). Caller holds the model lock."""
+        prev_eos = getattr(model, "eos_threshold", None)
+        if eos_override is not None:
+            model.eos_threshold = float(eos_override)
+        chunks: list[np.ndarray] = []
+        try:
+            for frame in model.generate_audio_stream(
+                    state, text_norm, frames_after_eos=eff_fae):
+                if hasattr(frame, "cpu"):
+                    frame = frame.cpu().numpy()
+                chunks.append(np.asarray(frame, dtype=np.float32).reshape(-1))
+        finally:
+            if eos_override is not None and prev_eos is not None:
+                model.eos_threshold = prev_eos
+        return np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
 
     t0 = time.perf_counter()
-    pcm_chunks: list[np.ndarray] = []
     model_lock = core.get_model_lock(model)
     with model_lock:
         prev_temp = getattr(model, "temp", None)
         if override_temp is not None:
             model.temp = override_temp
         try:
-            for frame in model.generate_audio_stream(
-                    state, text_norm, frames_after_eos=eff_fae):
-                if hasattr(frame, "cpu"):
-                    frame = frame.cpu().numpy()
-                pcm_chunks.append(np.asarray(frame, dtype=np.float32).reshape(-1))
+            pcm = _gen(req_eos)
+            # Silence-collapse retry: ultra-short inputs can hit EOS instantly and
+            # render near-silence. Detect that and retry once with a raised
+            # threshold. Skipped when the caller pinned eos_threshold themselves.
+            if req_eos is None and is_collapsed(float(pcm @ pcm), pcm.size):
+                _LOGGER.info("HTTP synth collapsed to silence — retry eos=%.1f",
+                             EOS_RETRY_THRESHOLD)
+                pcm = _gen(EOS_RETRY_THRESHOLD)
         finally:
             if override_temp is not None and prev_temp is not None:
                 model.temp = prev_temp
-    pcm = np.concatenate(pcm_chunks) if pcm_chunks else np.zeros(0, dtype=np.float32)
 
     # Output gain: per-request override, else the live global. Scale + clip.
     from .core import clamp_gain
@@ -418,6 +446,7 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
             pcm, lang = await asyncio.to_thread(
                 _synthesize_pcm, core, voice, req.input, req.language,
                 req.temperature, req.gain, req.frames_after_eos,
+                req.eos_threshold,
             )
         except HTTPException:
             raise
