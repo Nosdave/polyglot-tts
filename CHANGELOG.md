@@ -4,6 +4,8 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.7.0] – 2026-06-16
+
 ### Added
 
 - **Web UI: per-language voice management.** The voice list shows each voice's
