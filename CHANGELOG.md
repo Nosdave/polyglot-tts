@@ -4,6 +4,15 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **Text normalization: emoji stripping + currency symbols.** Emoji and
+  pictographs are removed before synthesis (the model otherwise mumbles over
+  them) — scoped to the emoji blocks so the spoken symbols (`→`, `<`, `>`, `=`,
+  `~`) are untouched. Currency symbols next to an amount are spoken as a word
+  after it, per language: `$12` → „zwölf Dollar", `50 €` → „fünfzig Euro", `£20`
+  → „zwanzig Pfund" (en/fr/it/es/pt analogous, plural unless the amount is 1).
+
 ## [0.7.0] – 2026-06-16
 
 ### Added

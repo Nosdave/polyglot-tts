@@ -77,6 +77,23 @@ _MD_PATTERNS: Final[list[tuple[re.Pattern, str]]] = [
     (re.compile(r"^[-:|\s]+$", re.M), ""),              # table separators
 ]
 
+# Emoji / pictographs are removed before synthesis — the model otherwise mumbles
+# over them. Deliberately scoped to the emoji blocks: the math/arrow symbols we
+# actually speak (→ U+2192, ← ↑ ↓ ↔, < > = ~) live OUTSIDE these ranges and are
+# handled later by _expand_symbols, so they are NOT stripped here.
+_EMOJI_RE: Final = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"   # emoticons, pictographs, transport, symbols ext-A, cards
+    "\U00002600-\U000026FF"   # miscellaneous symbols (☀ ☂ ⚡ ☎ …)
+    "\U00002700-\U000027BF"   # dingbats (✅ ❤ ✂ ✈ …)
+    "\U00002B00-\U00002BFF"   # stars/arrows-as-emoji (⭐ ⬆ ⬇ …)
+    "\U0000FE00-\U0000FE0F"   # variation selectors (emoji presentation)
+    "\U0001F3FB-\U0001F3FF"   # skin-tone modifiers
+    "‍♀♂"      # ZWJ + gender signs (emoji sequences)
+    "™©®"      # trademark, copyright, registered
+    "]+"
+)
+
 
 # Punctuation that already ends a clause/sentence with a pause or stop. A line
 # ending in one of these is NOT given an extra period by _terminate_lines.
@@ -207,6 +224,44 @@ _APPROX: Final[dict[str, str]] = {
     "de": "circa", "en": "about", "fr": "environ",
     "it": "circa", "es": "aproximadamente", "pt": "aproximadamente",
 }
+
+# Currency symbols spoken as a word AFTER the amount, per language: (singular,
+# plural) — plural unless the amount is exactly 1. German forms are invariant.
+# "$12" → "12 Dollar", "50 €" → "50 Euro". The digits stay for the number step.
+_CURRENCY: Final[dict[str, dict[str, tuple[str, str]]]] = {
+    "$": {"de": ("Dollar", "Dollar"), "en": ("dollar", "dollars"),
+          "fr": ("dollar", "dollars"), "it": ("dollaro", "dollari"),
+          "es": ("dólar", "dólares"), "pt": ("dólar", "dólares")},
+    "€": {"de": ("Euro", "Euro"), "en": ("euro", "euros"),
+          "fr": ("euro", "euros"), "it": ("euro", "euro"),
+          "es": ("euro", "euros"), "pt": ("euro", "euros")},
+    "£": {"de": ("Pfund", "Pfund"), "en": ("pound", "pounds"),
+          "fr": ("livre", "livres"), "it": ("sterlina", "sterline"),
+          "es": ("libra", "libras"), "pt": ("libra", "libras")},
+}
+_CUR_NUM = r"\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?"
+_CUR_BEFORE: Final = re.compile(r"([$€£])\s?(" + _CUR_NUM + r")")
+_CUR_AFTER: Final = re.compile(r"(?<![A-Za-z0-9])(" + _CUR_NUM + r")\s?([$€£])")
+
+
+def _expand_currency(text: str, lang: str) -> str:
+    """Currency symbol next to an amount → spoken word after it ('$12' → '12
+    Dollar', '50 €' → '50 Euro'). Leaves the digits for the later number step."""
+    def _word(sym: str, num: str) -> str | None:
+        forms = _CURRENCY.get(sym, {}).get(lang)
+        if not forms:
+            return None
+        return forms[0] if num.strip() == "1" else forms[1]
+
+    def _before(m: "re.Match") -> str:
+        w = _word(m.group(1), m.group(2))
+        return f"{m.group(2)} {w}" if w else m.group(0)
+
+    def _after(m: "re.Match") -> str:
+        w = _word(m.group(2), m.group(1))
+        return f"{m.group(1)} {w}" if w else m.group(0)
+
+    return _CUR_AFTER.sub(_after, _CUR_BEFORE.sub(_before, text))
 
 # Clock-time connector: "22:57" -> "<h> <connector> <m>". Languages without an
 # entry just get "<h> <m>".
@@ -725,6 +780,10 @@ def normalize(text: str, lang: str = "de") -> str:
     for pat, repl in _MD_PATTERNS:
         out = pat.sub(repl, out)
 
+    # 1b: Strip emoji / pictographs (the model mumbles over them). Done after the
+    # Markdown strip; the spoken symbols (→ < > = ~) are outside the emoji ranges.
+    out = _EMOJI_RE.sub("", out)
+
     # 3b: Expand dotted abbreviations ("z. B." → "zum Beispiel") before the
     # dots get read as sentence-ends or the letters spelled out.
     for pat, repl in _ABBREV_PATTERNS.get(lang, ()):
@@ -759,6 +818,7 @@ def normalize(text: str, lang: str = "de") -> str:
     _n2w_dt = _try_num2words()
     out = _expand_dates(out, lang, _n2w_dt)
     out = _expand_times(out, lang, _n2w_dt)
+    out = _expand_currency(out, lang)
     out = _expand_symbols(out, lang)
     out = _expand_ratios(out, lang, _n2w_dt)
 
