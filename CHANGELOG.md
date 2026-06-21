@@ -4,6 +4,8 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.7.1] – 2026-06-22
+
 ### Added
 
 - **Text normalization: emoji stripping + currency symbols.** Emoji and

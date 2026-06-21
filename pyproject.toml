@@ -1,6 +1,6 @@
 [project]
 name = "polyglot-tts"
-version = "0.7.0"
+version = "0.7.1"
 description = "Multi-language, streaming-capable TTS server with voice cloning. Wyoming + OpenAI-Speech endpoints. Powered by Kyutai Pocket TTS."
 readme = "README.md"
 license = "MIT"
