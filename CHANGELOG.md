@@ -12,6 +12,18 @@ All notable changes will be documented here. Semantic versioning.
   `~`) are untouched. Currency symbols next to an amount are spoken as a word
   after it, per language: `$12` → „zwölf Dollar", `50 €` → „fünfzig Euro", `£20`
   → „zwanzig Pfund" (en/fr/it/es/pt analogous, plural unless the amount is 1).
+  German „1 €" is spoken „ein Euro" (not „eins"), since the currency nouns are
+  masculine/neuter.
+
+### Changed
+
+- **Lower model-load + warmup VRAM peak.** `gc.collect()` + `torch.cuda.empty_cache()`
+  after each model is moved to the GPU and once after warmup, returning the
+  CPU→GPU load transients and the warmup high-water reservation to the OS
+  (PyTorch's caching allocator holds them otherwise). Trims the startup peak and
+  steady-state footprint by ~1–2 GB on multi-language GPU setups. Frees only
+  unused cached blocks — model weights, compiled kernels and output are
+  unchanged.
 
 ## [0.7.0] – 2026-06-16
 

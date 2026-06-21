@@ -246,20 +246,25 @@ _CUR_AFTER: Final = re.compile(r"(?<![A-Za-z0-9])(" + _CUR_NUM + r")\s?([$€£]
 
 def _expand_currency(text: str, lang: str) -> str:
     """Currency symbol next to an amount → spoken word after it ('$12' → '12
-    Dollar', '50 €' → '50 Euro'). Leaves the digits for the later number step."""
-    def _word(sym: str, num: str) -> str | None:
+    Dollar', '50 €' → '50 Euro'). The digits stay for the later number step,
+    except German '1', which is spelled here as 'ein' (not 'eins') since all
+    currency nouns are masculine/neuter ('ein Euro', 'ein Dollar', 'ein Pfund')."""
+    def _spoken(sym: str, num: str) -> str | None:
         forms = _CURRENCY.get(sym, {}).get(lang)
         if not forms:
             return None
-        return forms[0] if num.strip() == "1" else forms[1]
+        if num.strip() == "1":
+            # de: 'ein <currency>'. Other languages spell 1 correctly in the
+            # number step (one / un / uno / um), so leave the digit.
+            amount = "ein" if lang == "de" else num
+            return f"{amount} {forms[0]}"
+        return f"{num} {forms[1]}"
 
     def _before(m: "re.Match") -> str:
-        w = _word(m.group(1), m.group(2))
-        return f"{m.group(2)} {w}" if w else m.group(0)
+        return _spoken(m.group(1), m.group(2)) or m.group(0)
 
     def _after(m: "re.Match") -> str:
-        w = _word(m.group(2), m.group(1))
-        return f"{m.group(1)} {w}" if w else m.group(0)
+        return _spoken(m.group(2), m.group(1)) or m.group(0)
 
     return _CUR_AFTER.sub(_after, _CUR_BEFORE.sub(_before, text))
 

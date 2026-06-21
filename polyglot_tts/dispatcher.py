@@ -109,8 +109,14 @@ def _load_models(checkpoints: list[str], device_pref: str) -> dict:
             dev = torch.device("cuda")
             _LOGGER.info("Moving %d model(s) to GPU (%s)",
                          len(models), torch.cuda.get_device_name(0))
+            import gc
             for ckpt in list(models.keys()):
                 models[ckpt] = models[ckpt].to(dev)
+                # Release the CPU→GPU transients of this model before moving the
+                # next one — caps the cumulative load-time VRAM peak. Frees only
+                # unused cached blocks, never live tensors → no quality impact.
+                gc.collect()
+                torch.cuda.empty_cache()
     else:
         _LOGGER.info("Running on CPU "
                      "(RTF will be lower than GPU — see docs/PERFORMANCE.md)")
@@ -152,6 +158,15 @@ def _warmup(core: PolyglotCore) -> None:
             _LOGGER.info("Warmup %s: %d ms, %d frames", ckpt, dt_ms, n_frames)
         except Exception as e:
             _LOGGER.warning("Warmup %s failed: %s", ckpt, e)
+    # Return the warmup high-water reservation to the OS (PyTorch's caching
+    # allocator holds it otherwise). Steady-state drops toward the real working
+    # set; the compiled kernels and model weights stay — no quality impact.
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        pass
     _LOGGER.info("Warmup complete")
 
 
