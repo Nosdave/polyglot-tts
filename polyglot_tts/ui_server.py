@@ -154,6 +154,32 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
             "config": config_store.effective_config(),
         }
 
+    @app.get("/api/ui/replacements")
+    async def ui_get_replacements(request: Request):
+        _check_auth(request)
+        return {"replacements": config_store.read_replacements()}
+
+    @app.post("/api/ui/replacements")
+    async def ui_set_replacements(request: Request):
+        _check_auth(request)
+        body = await request.json()
+        repl = body.get("replacements", {})
+        if not isinstance(repl, dict):
+            raise HTTPException(400, "replacements must be an object {token: spoken}")
+        try:
+            clean = config_store.save_replacements(repl)
+        except OSError as e:
+            raise HTTPException(
+                500,
+                f"Could not persist replacements to "
+                f"{config_store.replacements_path()}: {e}. The config volume must "
+                f"be writable by the container user (UID 10001).",
+            ) from e
+        # Apply live — no restart needed (text_norm reads a module-global map).
+        from .text_norm import set_replacements
+        set_replacements(clean)
+        return {"saved": True, "count": len(clean), "replacements": clean}
+
     @app.post("/api/ui/restart")
     async def ui_restart(request: Request):
         _check_auth(request)

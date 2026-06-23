@@ -231,6 +231,54 @@ def save_settings(updates: dict) -> dict:
     return current
 
 
+# ── User replacement dictionary (separate file from the env overlay) ────────
+# A flat {token: spoken} map the UI/REST can edit, applied by text_norm before
+# the rest of normalization. Lives next to settings.json.
+_MAX_REPLACEMENTS = 500
+_MAX_KEY_LEN = 80
+_MAX_VAL_LEN = 200
+
+
+def replacements_path() -> Path:
+    return config_path().parent / "replacements.json"
+
+
+def read_replacements() -> dict:
+    p = replacements_path()
+    if not p.is_file():
+        return {}
+    try:
+        with open(p, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items() if str(k).strip()}
+    except Exception as e:  # noqa: BLE001
+        _LOGGER.warning("Could not read replacements file %s: %s", p, e)
+    return {}
+
+
+def save_replacements(mapping: dict) -> dict:
+    """Validate + persist the replacement dictionary. Returns the cleaned map.
+    Keys/values are trimmed and length-capped; the total count is bounded."""
+    clean: dict[str, str] = {}
+    for k, v in (mapping or {}).items():
+        key = str(k).strip()
+        val = str(v)
+        if not key or len(key) > _MAX_KEY_LEN or len(val) > _MAX_VAL_LEN:
+            continue
+        clean[key] = val
+        if len(clean) >= _MAX_REPLACEMENTS:
+            break
+    with _LOCK:
+        p = replacements_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(clean, fh, ensure_ascii=False, indent=2)
+        tmp.replace(p)
+    return clean
+
+
 def effective_config() -> dict:
     """Current effective values for every editable key, plus restart-required flags.
 

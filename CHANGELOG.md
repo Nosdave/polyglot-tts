@@ -4,6 +4,26 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **Pronunciation dictionary (user replacements).** A whole-word, case-sensitive
+  map applied before the rest of normalization, to fix how specific tokens are
+  spoken — acronyms (`HA` → „Home Assistant", `USB` → „U-S-B"), expansions
+  (`dept` → „department"), or anything the model mispronounces. Editable in the
+  web UI (Settings → Pronunciation dictionary) and at `GET/POST
+  /api/ui/replacements`; persisted to `config/replacements.json`. Applies live —
+  no restart.
+
+### Fixed
+
+- **`15.3 kWh` / `15.3 °C` no longer read as a date.** LLMs/Home Assistant write
+  decimals with a dot instead of the German comma (`15.3` for 15,3), and the
+  date-expander turned `15.3` into „15. März". A following unit now always wins →
+  the number stays a decimal („fünfzehn Komma drei Kilowattstunden"), while real
+  dates (`14.06.`, `am 15.3. um 10 Uhr`) are unaffected. Recognizes both unit
+  abbreviations and their spelled-out forms (so a `kWh → Kilowattstunden`
+  replacement doesn't re-break it).
+
 ## [0.7.1] – 2026-06-22
 
 ### Added

@@ -164,3 +164,14 @@ code { background: #0d1117; padding: 1px 5px; border-radius: 4px; }
 .slot-status { min-width: 90px; font-size: 0.78rem; color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 .slot-status.set { color: var(--ok); }
+
+/* pronunciation dictionary */
+#repl-rows { margin: 8px 0; }
+.repl-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.repl-row .repl-k { flex: 0 0 34%; min-width: 90px;
+  font-family: ui-monospace, monospace; }
+.repl-row .repl-arrow { flex: 0 0 auto; color: var(--muted); }
+.repl-row .repl-v { flex: 1; }
+.repl-row .repl-del { flex: 0 0 auto; padding: 6px 10px; font-weight: 700;
+  background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.repl-row .repl-del:hover { color: var(--danger); border-color: var(--danger); }

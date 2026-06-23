@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Polyglot TTS</title>
-  <link rel="stylesheet" href="/ui/static/style.css?v=081" />
+  <link rel="stylesheet" href="/ui/static/style.css?v=082" />
 </head>
 <body>
   <header>
@@ -106,6 +106,22 @@
       </div>
 
       <div class="card">
+        <h3>Pronunciation dictionary</h3>
+        <p class="muted">Replace specific words or acronyms before synthesis —
+          e.g. <code>HA</code> → <code>Home Assistant</code>, <code>USB</code> →
+          <code>U-S-B</code>, <code>dept</code> → <code>department</code>.
+          Whole-word, case-sensitive. Applies live (no restart); stored in
+          <code>config/replacements.json</code> and at
+          <code>GET/POST /api/ui/replacements</code>.</p>
+        <div id="repl-rows"></div>
+        <div class="row">
+          <button id="repl-add">Add row</button>
+          <button id="repl-save">Save dictionary</button>
+        </div>
+        <p id="repl-status" class="muted"></p>
+      </div>
+
+      <div class="card">
         <h3>HuggingFace token</h3>
         <p class="muted">Only needed for <strong>voice cloning</strong> (the gated
           Kyutai model). Preset voices work without it. Stored on the server;
@@ -120,6 +136,6 @@
     </section>
   </main>
 
-  <script src="/ui/static/app.js?v=081"></script>
+  <script src="/ui/static/app.js?v=082"></script>
 </body>
 </html>

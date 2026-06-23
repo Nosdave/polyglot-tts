@@ -94,6 +94,36 @@ _EMOJI_RE: Final = re.compile(
     "]+"
 )
 
+# ── User replacement dictionary ────────────────────────────────────────────
+# A whole-word, case-sensitive map applied before the rest of normalization, so
+# the user can fix how specific tokens are spoken — acronyms ("HA" → "Home
+# Assistant", "USB" → "U-S-B"), expansions ("dept" → "department"), or anything
+# the model mispronounces. Loaded from config/replacements.json (UI/REST
+# editable); set live via set_replacements(), no restart needed.
+_REPLACEMENTS: dict[str, str] = {}
+_REPLACEMENTS_RE: "re.Pattern | None" = None
+
+
+def set_replacements(mapping: dict | None) -> None:
+    """Install the live replacement dictionary. Longest keys first so a longer
+    token wins over a shorter prefix; case-sensitive whole-word matching."""
+    global _REPLACEMENTS, _REPLACEMENTS_RE
+    _REPLACEMENTS = {str(k): str(v) for k, v in (mapping or {}).items() if str(k)}
+    if not _REPLACEMENTS:
+        _REPLACEMENTS_RE = None
+        return
+    alts = "|".join(re.escape(k) for k in
+                    sorted(_REPLACEMENTS, key=len, reverse=True))
+    # (?<!\w) / (?!\w) = whole-word without requiring the token itself to be
+    # word-chars (so "z.B." or "kWh" still match cleanly).
+    _REPLACEMENTS_RE = re.compile(r"(?<!\w)(?:" + alts + r")(?!\w)")
+
+
+def _apply_replacements(text: str) -> str:
+    if _REPLACEMENTS_RE is None:
+        return text
+    return _REPLACEMENTS_RE.sub(lambda m: _REPLACEMENTS[m.group(0)], text)
+
 
 # Punctuation that already ends a clause/sentence with a pause or stop. A line
 # ending in one of these is NOT given an extra period by _terminate_lines.
@@ -308,13 +338,44 @@ def _expand_list_markers(text: str, lang: str) -> str:
     return _LIST_RE.sub(_sub, text)
 
 
+# Spelled-out unit words (beyond the _UNITS abbreviations) that also mark a
+# number as a measurement rather than a date.
+_UNIT_FOLLOW_WORDS: Final[dict[str, list[str]]] = {
+    "de": ["Grad", "Prozent"], "en": ["degrees?", "percent"],
+    "fr": ["degrés?", "pour ?cent"], "it": ["gradi?", "per ?cento"],
+    "es": ["grados?", "por ?ciento"], "pt": ["graus?", "por ?cento"],
+}
+_UNIT_FOLLOW_RE_CACHE: dict[str, "re.Pattern"] = {}
+
+
+def _unit_follows(rest: str, lang: str) -> bool:
+    """True if `rest` (the text right after a number) starts with a unit — then
+    the number is a measurement, not a date. '15.3 kWh' / '15.3 °C' / '15.3 Grad'
+    → decimal, while '14.06' (nothing/text after) stays a date."""
+    rx = _UNIT_FOLLOW_RE_CACHE.get(lang)
+    if rx is None:
+        units = _UNITS.get(lang, {})
+        # abbreviations (kWh, °C, %, …) AND the spelled-out forms' first word
+        # (Kilowattstunden, Grad, Kilometer …) — so a unit survives both a user
+        # replacement (kWh → Kilowattstunden) and an LLM spelling it out.
+        literals = set(units) | {v.split()[0] for v in units.values()}
+        alts = [re.escape(t) for t in sorted(literals, key=len, reverse=True)]
+        alts += _UNIT_FOLLOW_WORDS.get(lang, [])
+        # unit must not be a prefix of a longer word (so 'm' ≠ 'März', 'min' ≠
+        # 'minus'); symbols like °C / % end on a non-word char anyway.
+        rx = re.compile(r"\s*(?:" + "|".join(alts) + r")(?![\w°])")
+        _UNIT_FOLLOW_RE_CACHE[lang] = rx
+    return bool(rx.match(rest))
+
+
 def _expand_dates(text: str, lang: str, n2w) -> str:
     """Numeric dates 'DD.MM[.]' -> 'vierzehnter Juni' (de) / '14 juin' (fr).
 
     Only de/fr (German decimals use ',', so 'DD.MM' is unambiguously a date).
     To avoid eating version numbers like '3.5', a dotless 'DD.MM' is treated as
     a date only when the day is > 12 (can't be a month) or a trailing dot marks
-    it explicitly.
+    it explicitly. A following unit ('15.3 kWh', '15.3 °C') always wins → number,
+    since LLMs/HA write decimals with a dot instead of the German comma.
     """
     months = _MONTHS.get(lang)
     if not months or not n2w:
@@ -323,6 +384,10 @@ def _expand_dates(text: str, lang: str, n2w) -> str:
     def _sub(m: "re.Match") -> str:
         d, mo, yr = int(m.group(1)), int(m.group(2)), m.group(3)
         if not (1 <= d <= 31 and 1 <= mo <= 12):
+            return m.group(0)
+        # A unit right after → it's a measurement (decimal), never a date. This
+        # overrides the day>12 rule: "15.3 kWh" / "15.3 Grad" must stay numbers.
+        if not yr and _unit_follows(m.string[m.end():], lang):
             return m.group(0)
         # Only treat as a date when unambiguous: day > 12 (can't be a month) or
         # an explicit 4-digit year. Otherwise "3.5" / "1.12" stay numbers — a
@@ -788,6 +853,10 @@ def normalize(text: str, lang: str = "de") -> str:
     # 1b: Strip emoji / pictographs (the model mumbles over them). Done after the
     # Markdown strip; the spoken symbols (→ < > = ~) are outside the emoji ranges.
     out = _EMOJI_RE.sub("", out)
+
+    # 1c: User replacement dictionary (acronyms / custom fixes). Runs before the
+    # rest so a user mapping wins over the built-in unit/abbrev/number handling.
+    out = _apply_replacements(out)
 
     # 3b: Expand dotted abbreviations ("z. B." → "zum Beispiel") before the
     # dots get read as sentence-ends or the letters spelled out.

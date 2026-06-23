@@ -225,6 +225,11 @@ async def run() -> None:
     from . import config_store
     config_store.apply_overlay()
 
+    # Install the user replacement dictionary (config/replacements.json) into
+    # text_norm. Editable live via the UI/REST — this is just the boot load.
+    from .text_norm import set_replacements
+    set_replacements(config_store.read_replacements())
+
     # POCKET_TTS_LANGUAGES is the canonical key. POCKET_TTS_LANGUAGE (singular)
     # is the back-compat fallback for users migrating from araa47's fork —
     # see docs/MIGRATION_FROM_ARAA47.md.

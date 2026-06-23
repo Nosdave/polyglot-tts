@@ -467,6 +467,8 @@ async function refreshSettings() {
     const langs = LOADED_LANGS.length ? LOADED_LANGS : ["de", "en", "fr"];
     nl.innerHTML = langs.map((l) => `<option>${l}</option>`).join("");
   }
+
+  refreshReplacements();
 }
 
 document.getElementById("settings-save").onclick = () => saveSettings(false);
@@ -541,6 +543,61 @@ document.getElementById("norm-btn").onclick = async () => {
     const j = await r.json();
     out.textContent = r.ok ? j.normalized : ("Error " + r.status);
   } catch (e) { out.textContent = "Request failed."; }
+};
+
+// ── pronunciation dictionary ─────────────────────────────────────────────────
+function addReplRow(token, spoken) {
+  const wrap = document.getElementById("repl-rows");
+  if (!wrap) return;
+  const row = document.createElement("div");
+  row.className = "repl-row";
+  const k = document.createElement("input");
+  k.className = "repl-k"; k.placeholder = "token (e.g. HA)"; k.value = token || "";
+  k.autocomplete = "off"; k.spellcheck = false;
+  const arrow = document.createElement("span");
+  arrow.className = "repl-arrow"; arrow.textContent = "→";
+  const v = document.createElement("input");
+  v.className = "repl-v"; v.placeholder = "spoken as…"; v.value = spoken || "";
+  v.autocomplete = "off";
+  const del = document.createElement("button");
+  del.className = "repl-del"; del.type = "button";
+  del.textContent = "✕"; del.title = "Remove";
+  del.onclick = () => row.remove();
+  row.append(k, arrow, v, del);
+  wrap.appendChild(row);
+}
+
+async function refreshReplacements() {
+  const wrap = document.getElementById("repl-rows");
+  if (!wrap) return;
+  const r = await api("/api/ui/replacements");
+  if (!r.ok) return;
+  const map = (await r.json()).replacements || {};
+  wrap.innerHTML = "";
+  const keys = Object.keys(map);
+  if (!keys.length) addReplRow("", "");
+  else keys.forEach((key) => addReplRow(key, map[key]));
+}
+
+document.getElementById("repl-add").onclick = () => addReplRow("", "");
+document.getElementById("repl-save").onclick = async () => {
+  const st = document.getElementById("repl-status");
+  const map = {};
+  document.querySelectorAll("#repl-rows .repl-row").forEach((row) => {
+    const key = row.querySelector(".repl-k").value.trim();
+    const val = row.querySelector(".repl-v").value;
+    if (key) map[key] = val;
+  });
+  st.textContent = "Saving…";
+  const r = await api("/api/ui/replacements", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ replacements: map }),
+  });
+  if (!r.ok) { st.textContent = "Error " + r.status; return; }
+  const j = await r.json();
+  st.textContent = `Saved ${j.count} entr${j.count === 1 ? "y" : "ies"} — live, no restart.`;
+  refreshReplacements();
 };
 
 // ── init ────────────────────────────────────────────────────────────────────
