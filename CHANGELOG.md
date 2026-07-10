@@ -4,6 +4,8 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.7.2] – 2026-07-10
+
 ### Added
 
 - **Pronunciation dictionary (user replacements).** A whole-word, case-sensitive

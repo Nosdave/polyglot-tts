@@ -9,6 +9,6 @@ try:
     try:
         __version__ = _pkg_version("polyglot-tts")
     except PackageNotFoundError:
-        __version__ = "0.7.1"
+        __version__ = "0.7.2"
 except Exception:  # noqa: BLE001
-    __version__ = "0.7.1"
+    __version__ = "0.7.2"
