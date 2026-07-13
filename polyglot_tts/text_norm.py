@@ -717,6 +717,17 @@ _NUMBER_PATTERN: Final[re.Pattern] = re.compile(
     r"(?<![A-Za-z0-9.])-?(?:\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)(?![A-Za-z0-9])"
 )
 
+# German "einund…" compound numbers (21, 31, 41 … 91) make the 24l DE checkpoint
+# garble: it mis-parses the leading "ein" as the article and collapses the rest
+# ("einunddreißig" → "ein Klund 30"). Splitting "ein" from "und" gives the model
+# a clean token boundary and it speaks the number reliably ("ein und dreißig").
+# Verified via STT round-trip 2026-07 (3/3 clean vs 0/3 for the joined form; the
+# split must be after "ein" — "einund dreißig" still garbles). Other tens
+# (zweiund…, fünfund…) are unaffected, so the lookahead keeps this numeric-only.
+_EINUND_RE: Final[re.Pattern] = re.compile(
+    r"einund(?=zwanzig|dreißig|vierzig|fünfzig|sechzig|siebzig|achtzig|neunzig)"
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # German ordinals — "20." → "zwanzigste(n)" instead of "zwanzig" + sentence end
@@ -936,6 +947,12 @@ def normalize(text: str, lang: str = "de") -> str:
                 _LOGGER.debug("num2words(%r) failed: %s", n, e)
                 return m.group(0)
         out = _NUMBER_PATTERN.sub(_expand_number, out)
+
+    # 6b: Split the "einund…" prefix of German compound numbers so the checkpoint
+    # stops garbling them (see _EINUND_RE). Runs after all number expansion so it
+    # catches every path (units, standalone, currency, ordinals, decimals).
+    if lang == "de":
+        out = _EINUND_RE.sub("ein und ", out)
 
     # 7: Collapse whitespace
     out = re.sub(r"\s+", " ", out).strip()

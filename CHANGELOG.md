@@ -4,6 +4,19 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.7.3] – 2026-07-13
+
+### Fixed
+
+- **German „einund…" numbers (21, 31, 41 … 91) no longer garble.** The 24l German
+  checkpoint mis-parses the leading „ein" of these compound numbers as the article
+  and collapses the rest mid-sentence („einunddreißig" → „ein Klund dreißig"). The
+  word alone is fine; only connected speech triggers it. Normalization now splits
+  just that prefix („einunddreißig" → „ein und dreißig"), which gives the model a
+  clean token boundary and it speaks the number reliably. Verified by STT
+  round-trip (3/3 clean vs. 0/3 before). Numeric-only (a lookahead on the tens),
+  so other numbers, ordinals, decimals and thousands are untouched.
+
 ## [0.7.2] – 2026-07-10
 
 ### Added
