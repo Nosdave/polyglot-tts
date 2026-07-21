@@ -56,6 +56,8 @@ from .core import (
     SAMPLE_RATE,
     SAMPLE_WIDTH,
     is_collapsed,
+    min_lid_chars,
+    resolve_default_language,
 )
 from .text_norm import normalize as _normalize_text
 from .timing_server import update_timing
@@ -204,8 +206,10 @@ class PocketTTSEventHandler(AsyncEventHandler):
         self.voice_states = voice_states
         self.advertised_bcp47 = advertised_bcp47
         self._core = core
-        self.default_checkpoint = next(iter(models.keys()))
-        self.default_bcp47 = LANGUAGE_TO_BCP47.get(self.default_checkpoint.split("_")[0], "en")
+        # Legacy default = first loaded checkpoint; the EFFECTIVE default is
+        # resolved live (properties below) so POCKET_TTS_DEFAULT_LANGUAGE
+        # applies without a restart.
+        self._first_checkpoint = next(iter(models.keys()))
         # bcp47 -> loaded checkpoint, from the actually-loaded models (handles
         # light variants like "german"); first-loaded wins per language.
         self._bcp47_to_checkpoint: dict[str, str] = {}
@@ -244,6 +248,20 @@ class PocketTTSEventHandler(AsyncEventHandler):
 
     # ── helpers ───────────────────────────────────────────────────────────
 
+    def default_language(self) -> tuple[str, str, str]:
+        """Effective default → (bcp47, checkpoint, source). Read live so
+        POCKET_TTS_DEFAULT_LANGUAGE applies without a restart."""
+        return resolve_default_language(
+            self._bcp47_to_checkpoint, self._first_checkpoint)
+
+    @property
+    def default_checkpoint(self) -> str:
+        return self.default_language()[1]
+
+    @property
+    def default_bcp47(self) -> str:
+        return self.default_language()[0]
+
     def _resolve_checkpoint(self, requested_bcp47: str | None, text: str) -> tuple[str, str]:
         """Pick (bcp47, checkpoint_name) — ElevenLabs-style on-the-fly multilingual.
 
@@ -252,16 +270,18 @@ class PocketTTSEventHandler(AsyncEventHandler):
           2. Lingua-based LID on text (default-ON in v1.3.3+ since Lingua is reliable
              for short Smart-Home phrases when combined with character heuristics
              + confidence-thresholding). Disable per `POCKET_TTS_AUTO_LID=false`.
-          3. Default checkpoint (first POCKET_TTS_LANGUAGES entry — user's primary).
+             Runs only at >= POCKET_TTS_MIN_LID_CHARS (default 20) chars.
+          3. Default language — POCKET_TTS_DEFAULT_LANGUAGE if set + loaded,
+             else first POCKET_TTS_LANGUAGES entry (legacy).
 
         Notes:
           - HA core has a known bug: wyoming/tts.py builds SynthesizeVoice without
             language=, so step 1 rarely fires in practice. The architecture works
             anyway because LID adapts on-the-fly.
-          - MIN_LID_CHARS=20 with Lingua is safe (was 80 with py3langid).
+          - Short replies (< threshold) skip LID entirely and speak the DEFAULT —
+            that's why an explicit default matters for single-language households.
         """
         import os
-        MIN_LID_CHARS = 20
         auto_lid_enabled = os.environ.get("POCKET_TTS_AUTO_LID", "true").lower() in ("1", "true", "yes")
 
         # Resolve via the loaded-models map (built from what's actually
@@ -278,7 +298,8 @@ class PocketTTSEventHandler(AsyncEventHandler):
 
         # 2. Lingua LID — on-the-fly multilingual (ElevenLabs-style)
         text_len = len((text or "").strip())
-        if auto_lid_enabled and text_len >= MIN_LID_CHARS:
+        lid_min = min_lid_chars()
+        if auto_lid_enabled and text_len >= lid_min:
             bcp47 = _detect_language(text, self.advertised_bcp47, self.default_bcp47)
             ckpt = bcp_map.get(bcp47) if bcp_map else None
             if ckpt:
@@ -286,10 +307,13 @@ class PocketTTSEventHandler(AsyncEventHandler):
                 return bcp47, ckpt
 
         # 3. Default fallback
-        _LOGGER.info("Lang → default (text_len=%d, hint=%r, auto_lid=%s): %s/%s",
-                     text_len, requested_bcp47, auto_lid_enabled,
-                     self.default_bcp47, self.default_checkpoint)
-        return self.default_bcp47, self.default_checkpoint
+        def_bcp47, def_ckpt, def_src = self.default_language()
+        _LOGGER.info(
+            "Lang → default (text_len=%d, lid_min=%d, hint=%r, auto_lid=%s): "
+            "%s/%s [%s]",
+            text_len, lid_min, requested_bcp47, auto_lid_enabled,
+            def_bcp47, def_ckpt, def_src)
+        return def_bcp47, def_ckpt
 
     def _get_voice_state(self, voice_name: str, checkpoint: str):
         per_lang = self.voice_states.get(voice_name)

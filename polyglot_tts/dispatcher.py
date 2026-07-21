@@ -24,6 +24,13 @@ POCKET_TTS_DEVICE           "auto" (default) | "cpu" | "cuda"
 POCKET_TTS_WARMUP           "true" (default) | "false"
 POCKET_TTS_TEXT_NORM        "true" (default) | "false"
 POCKET_TTS_AUTO_LID         "true" (default) | "false"
+POCKET_TTS_DEFAULT_LANGUAGE BCP47 code ("de", "en", …) spoken when no hint is
+                            given and the text is below the LID threshold.
+                            Empty (default) = first POCKET_TTS_LANGUAGES
+                            entry. Must be a loaded language. Applies live.
+POCKET_TTS_MIN_LID_CHARS    Min text length before Lingua LID runs (4-500,
+                            default: 20). Shorter replies speak the default
+                            language. Applies live.
 POCKET_TTS_LAZY_LOAD        "false" (default) | "true" — load missing langs
                             on first request (experimental)
 POCKET_TTS_MIN_SYNTH_CHARS  Streaming first-flush threshold (default: 30)
@@ -281,6 +288,11 @@ async def run() -> None:
         advertised_bcp47=advertised_bcp47,
         voices_extra_dir=voices_extra_dir,
     )
+    # Log the effective default ONCE at boot — this line is the first thing
+    # to check when short replies come out in the wrong language.
+    def_bcp47, def_ckpt, def_source = core.default_language()
+    _LOGGER.info("Default language: %s (checkpoint=%s, source=%s)",
+                 def_bcp47, def_ckpt, def_source)
 
     # 3) Encode default voice (if it's a preset)
     if default_voice and default_voice not in core.voice_states:

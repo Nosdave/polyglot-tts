@@ -83,6 +83,8 @@ model speaks it from a native-language reference -> no cross-language accent.
 | `POCKET_TTS_WARMUP` | `true` | Run a short synthesis per loaded language at startup to warm up JIT-compiled CUDA kernels and worker threads. |
 | `POCKET_TTS_TEXT_NORM` | `true` | Apply Markdown-strip, unit-expansion, number-to-words before synthesis. |
 | `POCKET_TTS_AUTO_LID` | `true` | Enable Lingua-based per-sentence language detection. |
+| `POCKET_TTS_DEFAULT_LANGUAGE` | *(empty)* | BCP47 code (`de`, `en`, …) spoken when no language hint is given **and** the text is shorter than `POCKET_TTS_MIN_LID_CHARS` (detection never runs there). Empty = legacy behaviour: the first `POCKET_TTS_LANGUAGES` entry. Must be one of the loaded languages, otherwise it logs a warning and the first loaded wins. Applies **live**. |
+| `POCKET_TTS_MIN_LID_CHARS` | `20` | Minimum text length (chars) before Lingua LID runs; shorter replies speak the default language. Clamped to `4`–`500`. Lowering it catches short foreign-language replies, but very short phrases can misroute (`"Okay"` legitimately detects as English). Applies **live**. |
 | `POCKET_TTS_LAZY_LOAD` | `false` | **Declared but not yet implemented** — slated for 0.6.0. Today: all languages listed in `POCKET_TTS_LANGUAGES` are loaded eagerly at startup. |
 | `POCKET_TTS_MIN_SYNTH_CHARS` | `30` | First-flush threshold for streaming. Lower = faster first audio at the cost of less natural prosody. |
 | `POCKET_TTS_TEMP` | `0.7` | Sampling temperature (`0.1`–`1.5`). Higher = more expressive/varied but less stable; lower = flatter/more consistent. Sets the **global** value (all voices and languages). Applies **live** — `model.temp` is read at each decode step, so saving it via the UI/config takes effect on the next synthesis with no restart. Override per call with the `temperature` field on `POST /v1/audio/speech`. |
@@ -172,5 +174,6 @@ POCKET_TTS_WYOMING_PORT=
 |---|---|
 | Skip warmup (faster start, slower first call) | `POCKET_TTS_WARMUP=false` |
 | Force a specific language regardless of LID | `POCKET_TTS_AUTO_LID=false` + set `POCKET_TTS_LANGUAGES` to that one language |
+| Short replies ("Licht aus") speak the wrong language | `POCKET_TTS_DEFAULT_LANGUAGE=de` (your primary language) — short texts skip LID and fall back to the default |
 | Receive raw input without text normalization | `POCKET_TTS_TEXT_NORM=false` |
 | Disable side-channel timing endpoint | `POCKET_TTS_TIMING_PORT=` |

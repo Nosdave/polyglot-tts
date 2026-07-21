@@ -31,18 +31,20 @@ _LOGGER = logging.getLogger(__name__)
 # Keys the UI is allowed to write. Anything else is ignored (defence against
 # a tampered settings file injecting arbitrary env).
 EDITABLE_KEYS: set[str] = {
-    "POCKET_TTS_LANGUAGES",       # restart required
-    "POCKET_TTS_VOICE",           # live (default voice)
-    "POCKET_TTS_DEVICE",          # restart required
-    "POCKET_TTS_AUTO_LID",        # live-ish (read per request)
-    "POCKET_TTS_TEXT_NORM",       # live-ish
-    "POCKET_TTS_LAZY_LOAD",       # restart required (and not yet implemented)
-    "POCKET_TTS_MIN_SYNTH_CHARS", # live-ish
-    "POCKET_TTS_WARMUP",          # restart required
-    "POCKET_TTS_TEMP",            # live (read per decode step)
-    "POCKET_TTS_OUTPUT_GAIN",     # live (applied per synthesis)
-    "POCKET_TTS_VOICE_NORMALIZE", # live (read per clone)
-    "HF_TOKEN",                   # live (next encode)
+    "POCKET_TTS_LANGUAGES",        # restart required
+    "POCKET_TTS_VOICE",            # live (default voice)
+    "POCKET_TTS_DEVICE",           # restart required
+    "POCKET_TTS_AUTO_LID",         # live-ish (read per request)
+    "POCKET_TTS_DEFAULT_LANGUAGE", # live (read per request)
+    "POCKET_TTS_MIN_LID_CHARS",    # live (read per request)
+    "POCKET_TTS_TEXT_NORM",        # live-ish
+    "POCKET_TTS_LAZY_LOAD",        # restart required (and not yet implemented)
+    "POCKET_TTS_MIN_SYNTH_CHARS",  # live-ish
+    "POCKET_TTS_WARMUP",           # restart required
+    "POCKET_TTS_TEMP",             # live (read per decode step)
+    "POCKET_TTS_OUTPUT_GAIN",      # live (applied per synthesis)
+    "POCKET_TTS_VOICE_NORMALIZE",  # live (read per clone)
+    "HF_TOKEN",                    # live (next encode)
 }
 
 # Which keys only take effect after a container restart.
@@ -78,6 +80,22 @@ FIELD_META: dict[str, dict] = {
     "POCKET_TTS_AUTO_LID": {
         "type": "bool",
         "help": "Detect the language of each request automatically (Lingua).",
+    },
+    "POCKET_TTS_DEFAULT_LANGUAGE": {
+        "type": "select",
+        "help": "Language spoken when no hint is given and the text is shorter "
+                "than the LID threshold (detection never runs there). Empty = "
+                "first entry of POCKET_TTS_LANGUAGES. Must be a loaded "
+                "language, otherwise the first loaded wins. Applies live.",
+        "options": ["", "de", "en", "fr", "it", "es", "pt"],
+    },
+    "POCKET_TTS_MIN_LID_CHARS": {
+        "type": "number",
+        "help": "Minimum text length (chars) before Lingua language detection "
+                "runs; shorter replies speak the default language. Lower "
+                "catches short foreign replies but can misroute short phrases "
+                "('Okay' detects as English). 4–500, default 20. Applies live.",
+        "placeholder": "20",
     },
     "POCKET_TTS_TEXT_NORM": {
         "type": "bool",
@@ -222,6 +240,7 @@ def save_settings(updates: dict) -> dict:
     if "HF_TOKEN" in updates and updates["HF_TOKEN"]:
         os.environ["HF_TOKEN"] = str(updates["HF_TOKEN"])
     for live_key in ("POCKET_TTS_VOICE", "POCKET_TTS_AUTO_LID",
+                     "POCKET_TTS_DEFAULT_LANGUAGE", "POCKET_TTS_MIN_LID_CHARS",
                      "POCKET_TTS_TEXT_NORM", "POCKET_TTS_MIN_SYNTH_CHARS",
                      "POCKET_TTS_TEMP", "POCKET_TTS_OUTPUT_GAIN",
                      "POCKET_TTS_VOICE_NORMALIZE"):

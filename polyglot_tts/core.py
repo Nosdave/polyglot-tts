@@ -166,6 +166,66 @@ def clamp_gain(raw, default: float = GAIN_DEFAULT) -> float:
     return val
 
 
+# ── Default language + Lingua-LID threshold (both live-tunable) ────────────
+# POCKET_TTS_DEFAULT_LANGUAGE decouples "which language speaks when nothing
+# else decides" from the load order of POCKET_TTS_LANGUAGES. Historically the
+# default was silently the FIRST LOADED checkpoint, so a UI save that
+# reordered the list flipped the spoken language of every short reply (below
+# the LID threshold, where detection never runs). Empty/unset keeps exactly
+# that legacy behaviour. Both are read live per request → UI saves apply
+# without a restart.
+MIN_LID_CHARS_MIN, MIN_LID_CHARS_MAX, MIN_LID_CHARS_DEFAULT = 4, 500, 20
+
+
+def min_lid_chars() -> int:
+    """Live-read POCKET_TTS_MIN_LID_CHARS, clamped into [4, 500]. Bad/empty
+    input returns the default (20).
+
+    4 is a hard floor: `_detect_language()` returns the default below 4 chars
+    regardless, so lower values would only pretend to work. Single shared
+    definition for BOTH resolve paths (Wyoming + HTTP) — this was previously
+    hardcoded as 20 in two files.
+    """
+    raw = os.environ.get("POCKET_TTS_MIN_LID_CHARS")
+    try:
+        val = int(float(str(raw)))
+    except (ValueError, TypeError):
+        return MIN_LID_CHARS_DEFAULT
+    return max(MIN_LID_CHARS_MIN, min(MIN_LID_CHARS_MAX, val))
+
+
+# Warn once per distinct bad value, not per request (resolve runs per request).
+_warned_default_language: set[str] = set()
+
+
+def resolve_default_language(
+    bcp47_to_checkpoint: dict[str, str],
+    first_checkpoint: str,
+) -> tuple[str, str, str]:
+    """Resolve the effective default language → (bcp47, checkpoint, source).
+
+    `source` is "explicit" when POCKET_TTS_DEFAULT_LANGUAGE picked it, else
+    "first-loaded" (legacy: first POCKET_TTS_LANGUAGES entry). Accepts full
+    BCP47 tags ("de-DE" → "de"), case-insensitive. An explicit value that is
+    not among the loaded languages logs ONE warning per value and falls back
+    to first-loaded rather than failing requests.
+    """
+    raw = (os.environ.get("POCKET_TTS_DEFAULT_LANGUAGE") or "").strip()
+    if raw:
+        bcp47 = raw.split("-")[0].lower()
+        ckpt = bcp47_to_checkpoint.get(bcp47)
+        if ckpt:
+            return bcp47, ckpt, "explicit"
+        if raw not in _warned_default_language:
+            _warned_default_language.add(raw)
+            _LOGGER.warning(
+                "POCKET_TTS_DEFAULT_LANGUAGE=%r is not among the loaded "
+                "languages %s — falling back to first-loaded default",
+                raw, sorted(bcp47_to_checkpoint))
+    first_bcp47 = LANGUAGE_TO_BCP47.get(first_checkpoint.split("_")[0], "en")
+    return first_bcp47, first_checkpoint, "first-loaded"
+
+
 class PolyglotCore:
     """Shared TTS-engine state. Built once, used by every endpoint."""
 
@@ -187,10 +247,10 @@ class PolyglotCore:
         self.default_voice = default_voice
         self.advertised_bcp47 = advertised_bcp47
         self.voices_extra_dir = voices_extra_dir
-        self.default_checkpoint = next(iter(models.keys()))
-        self.default_bcp47 = LANGUAGE_TO_BCP47.get(
-            self.default_checkpoint.split("_")[0], "en"
-        )
+        # Legacy default = first loaded checkpoint. The EFFECTIVE default is
+        # resolved live via the `default_checkpoint`/`default_bcp47` properties
+        # so POCKET_TTS_DEFAULT_LANGUAGE applies without a restart.
+        self._first_checkpoint = next(iter(models.keys()))
 
         # Global output gain, read live by both synthesis paths (HTTP + Wyoming).
         # A plain float attribute → live-adjustable from the UI without a reload.
@@ -230,6 +290,19 @@ class PolyglotCore:
         # too when it offloads to an executor.
         self._model_locks: dict[int, threading.Lock] = {}
         self._model_locks_guard = threading.Lock()
+
+    def default_language(self) -> tuple[str, str, str]:
+        """Effective default → (bcp47, checkpoint, source). Read live."""
+        return resolve_default_language(
+            self.bcp47_to_checkpoint, self._first_checkpoint)
+
+    @property
+    def default_checkpoint(self) -> str:
+        return self.default_language()[1]
+
+    @property
+    def default_bcp47(self) -> str:
+        return self.default_language()[0]
 
     def get_model_lock(self, model) -> threading.Lock:
         """Return the shared sync-lock for this model. Safe from any thread."""
