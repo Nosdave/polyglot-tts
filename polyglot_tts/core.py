@@ -177,6 +177,15 @@ def clamp_gain(raw, default: float = GAIN_DEFAULT) -> float:
 MIN_LID_CHARS_MIN, MIN_LID_CHARS_MAX, MIN_LID_CHARS_DEFAULT = 4, 500, 20
 
 
+def normalize_bcp47(raw) -> str:
+    """Canonicalize a language tag to its lowercase primary subtag
+    ("de-DE" → "de", "DE" → "de", None/"" → ""). Shared by the resolver AND
+    the config layer so the stored/displayed value always matches the
+    UI select options — a raw "de-DE" in the settings would render as an
+    empty select and get silently cleared on the next unrelated save."""
+    return str(raw or "").strip().split("-")[0].lower()
+
+
 def min_lid_chars() -> int:
     """Live-read POCKET_TTS_MIN_LID_CHARS, clamped into [4, 500]. Bad/empty
     input returns the default (20).
@@ -186,9 +195,16 @@ def min_lid_chars() -> int:
     definition for BOTH resolve paths (Wyoming + HTTP) — this was previously
     hardcoded as 20 in two files.
     """
+    import math
     raw = os.environ.get("POCKET_TTS_MIN_LID_CHARS")
     try:
-        val = int(float(str(raw)))
+        f = float(str(raw))
+        # inf/-inf/nan: float() parses them ("1e999" overflows to inf), but
+        # int(inf) raises OverflowError — uncaught, that 500'd every resolve
+        # path until the setting was fixed. Treat non-finite as bad input.
+        if not math.isfinite(f):
+            return MIN_LID_CHARS_DEFAULT
+        val = int(f)
     except (ValueError, TypeError):
         return MIN_LID_CHARS_DEFAULT
     return max(MIN_LID_CHARS_MIN, min(MIN_LID_CHARS_MAX, val))
@@ -212,7 +228,7 @@ def resolve_default_language(
     """
     raw = (os.environ.get("POCKET_TTS_DEFAULT_LANGUAGE") or "").strip()
     if raw:
-        bcp47 = raw.split("-")[0].lower()
+        bcp47 = normalize_bcp47(raw)
         ckpt = bcp47_to_checkpoint.get(bcp47)
         if ckpt:
             return bcp47, ckpt, "explicit"

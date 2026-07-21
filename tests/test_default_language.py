@@ -116,6 +116,15 @@ def test_min_lid_chars_bad_input_returns_default(monkeypatch):
     assert min_lid_chars() == 12  # floats truncate, not error
 
 
+def test_min_lid_chars_nonfinite_returns_default(monkeypatch):
+    # Regression (Codex review): float() parses inf/nan and "1e999" overflows
+    # to inf; int(inf) raises OverflowError which the except tuple did NOT
+    # catch — every resolve path then 500'd until the setting was fixed.
+    for raw in ("inf", "-inf", "1e999", "-1e999", "nan", "Infinity", "INF"):
+        monkeypatch.setenv("POCKET_TTS_MIN_LID_CHARS", raw)
+        assert min_lid_chars() == MIN_LID_CHARS_DEFAULT, raw
+
+
 # ── config_store integration ───────────────────────────────────────────────
 
 def test_new_keys_are_editable_and_live():
@@ -141,3 +150,34 @@ def test_save_settings_applies_live_and_clears(tmp_path, monkeypatch):
     config_store.save_settings({"POCKET_TTS_DEFAULT_LANGUAGE": ""})
     assert "POCKET_TTS_DEFAULT_LANGUAGE" not in os.environ
     assert "POCKET_TTS_DEFAULT_LANGUAGE" not in config_store._read_file()
+
+
+def test_save_settings_canonicalizes_default_language(tmp_path, monkeypatch):
+    # Regression (Codex review): a stored "de-DE" never matches the UI select
+    # options, renders as blank, and the next unrelated save clears it.
+    from polyglot_tts import config_store
+    monkeypatch.setenv("POCKET_TTS_CONFIG_FILE", str(tmp_path / "settings.json"))
+    config_store.save_settings({"POCKET_TTS_DEFAULT_LANGUAGE": "de-DE"})
+    import os
+    assert os.environ.get("POCKET_TTS_DEFAULT_LANGUAGE") == "de"
+    assert config_store._read_file()["POCKET_TTS_DEFAULT_LANGUAGE"] == "de"
+
+
+def test_effective_config_canonicalizes_env_value(monkeypatch):
+    # A compose-env "de-DE" (never passed through save_settings) must still
+    # render as the matching "de" option — else the blank first option shows
+    # and a save would os.environ.pop the compose value from the live process.
+    from polyglot_tts import config_store
+    monkeypatch.setenv("POCKET_TTS_DEFAULT_LANGUAGE", "de-DE")
+    cfg = config_store.effective_config()
+    assert cfg["POCKET_TTS_DEFAULT_LANGUAGE"]["value"] == "de"
+    assert "de" in cfg["POCKET_TTS_DEFAULT_LANGUAGE"]["options"]
+
+
+def test_save_inf_threshold_end_to_end(tmp_path, monkeypatch):
+    # UI→env→resolve integration: poisoning the threshold with "inf" must
+    # degrade to the default, not crash the resolve paths.
+    from polyglot_tts import config_store
+    monkeypatch.setenv("POCKET_TTS_CONFIG_FILE", str(tmp_path / "settings.json"))
+    config_store.save_settings({"POCKET_TTS_MIN_LID_CHARS": "inf"})
+    assert min_lid_chars() == MIN_LID_CHARS_DEFAULT
