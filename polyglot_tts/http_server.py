@@ -58,6 +58,7 @@ from .core import (
     clamp_eos_threshold,
     clamp_frames_after_eos,
     is_collapsed,
+    min_lid_chars,
 )
 from .text_norm import normalize as normalize_text
 from .timing_server import update_timing
@@ -128,8 +129,12 @@ def _detect_language(text: str, available: list[str], default: str) -> str:
 
 def _resolve_checkpoint(core: PolyglotCore, lang_hint: str | None,
                         text: str) -> tuple[str, str]:
-    """Pick (bcp47, checkpoint). Mirrors handler._resolve_checkpoint."""
-    MIN_LID_CHARS = 20
+    """Pick (bcp47, checkpoint). Mirrors handler._resolve_checkpoint.
+
+    LID runs only at >= POCKET_TTS_MIN_LID_CHARS (default 20) chars; shorter
+    texts speak the default language (POCKET_TTS_DEFAULT_LANGUAGE if set +
+    loaded, else the first POCKET_TTS_LANGUAGES entry). Both read live.
+    """
     # Resolve via the loaded-models map (handles light variants like "german"),
     # not a hardcoded table.
     if lang_hint:
@@ -138,7 +143,7 @@ def _resolve_checkpoint(core: PolyglotCore, lang_hint: str | None,
         if ckpt:
             return bcp47, ckpt
     text_len = len((text or "").strip())
-    if auto_lid_enabled() and text_len >= MIN_LID_CHARS:
+    if auto_lid_enabled() and text_len >= min_lid_chars():
         bcp47 = _detect_language(text, core.advertised_bcp47, core.default_bcp47)
         ckpt = core.bcp47_to_checkpoint.get(bcp47)
         if ckpt:
@@ -319,13 +324,18 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
 
     @app.get("/v1/audio/languages")
     async def list_languages() -> dict:
+        def_bcp47, def_ckpt, def_source = core.default_language()
         return {
             "loaded": [
                 {"checkpoint": ckpt,
                  "bcp47": LANGUAGE_TO_BCP47.get(ckpt.split("_")[0], "??")}
                 for ckpt in core.models.keys()
             ],
-            "default_bcp47": core.default_bcp47,
+            "default_bcp47": def_bcp47,
+            # "explicit" = POCKET_TTS_DEFAULT_LANGUAGE picked it;
+            # "first-loaded" = legacy first POCKET_TTS_LANGUAGES entry.
+            "default_source": def_source,
+            "min_lid_chars": min_lid_chars(),
         }
 
     @app.get("/v1/audio/voices")

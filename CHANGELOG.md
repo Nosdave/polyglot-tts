@@ -6,6 +6,26 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [0.7.3] – 2026-07-13
 
+### Added
+
+- **`POCKET_TTS_DEFAULT_LANGUAGE` — explicit default language.** Which language
+  speaks when no hint is given and the text is too short for language detection
+  is now a setting (BCP47 code, e.g. `de`), decoupled from the *order* of
+  `POCKET_TTS_LANGUAGES`. Previously the default was silently the first loaded
+  checkpoint, so reordering the language list (e.g. by saving in the web UI)
+  flipped every short reply — „Licht ausgeschaltet" (19 chars, below the LID
+  threshold) suddenly spoke with an English model. Empty keeps the legacy
+  behaviour (first entry wins). Editable in the web UI and via
+  `POST /api/ui/config`; applies **live**, no restart. The boot log and
+  `GET /v1/audio/languages` now report the effective default and its source
+  (`explicit` vs `first-loaded`).
+- **`POCKET_TTS_MIN_LID_CHARS` — configurable LID threshold.** The minimum text
+  length before Lingua language detection runs (default 20, clamped 4–500) was
+  hardcoded in two places; it is now one shared, live-tunable setting exposed
+  in the web UI. Lower it to catch short foreign-language replies — with the
+  caveat that very short phrases can legitimately misroute („Okay" *is*
+  English to a detector).
+
 ### Fixed
 
 - **German „einund…" numbers (21, 31, 41 … 91) no longer garble.** The 24l German
