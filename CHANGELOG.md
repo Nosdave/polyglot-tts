@@ -4,7 +4,7 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
-## [0.7.3] – 2026-07-13
+## [0.7.3] – 2026-07-22
 
 ### Added
 
