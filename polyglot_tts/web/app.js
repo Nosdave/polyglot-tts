@@ -380,8 +380,12 @@ function settingField(key, c) {
       <option value="false" ${!on ? "selected" : ""}>false</option></select>`;
   }
   if (c.type === "select") {
+    // Keep an unlisted current value selectable (e.g. env-set "cuda:0").
+    // Without this the select silently falls back to the first option and
+    // the next save would overwrite the real value with it.
+    const opts = c.options.includes(val) ? c.options : [...c.options, val];
     return `<select data-key="${key}">` +
-      c.options.map((o) => `<option ${o === val ? "selected" : ""}>${o}</option>`).join("") +
+      opts.map((o) => `<option ${o === val ? "selected" : ""}>${o}</option>`).join("") +
       `</select>`;
   }
   if (c.type === "voice-select") {

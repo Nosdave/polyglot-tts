@@ -216,6 +216,14 @@ def save_settings(updates: dict) -> dict:
         updates["POCKET_TTS_LANGUAGES"] = _normalize_languages(
             str(updates["POCKET_TTS_LANGUAGES"])
         )
+    if updates.get("POCKET_TTS_DEFAULT_LANGUAGE"):
+        # Canonicalize ("de-DE"/"DE" → "de") so the stored value always
+        # matches the UI select options — a non-canonical value renders as
+        # an empty select and would be cleared by the next unrelated save.
+        from .core import normalize_bcp47
+        updates = dict(updates)
+        updates["POCKET_TTS_DEFAULT_LANGUAGE"] = normalize_bcp47(
+            updates["POCKET_TTS_DEFAULT_LANGUAGE"])
     with _LOCK:
         current = _read_file()
         for k, v in updates.items():
@@ -318,6 +326,12 @@ def effective_config() -> dict:
             out[k] = {"value": bool(os.environ.get("HF_TOKEN")),
                       "is_secret": True, **common}
         else:
-            out[k] = {"value": os.environ.get(k, ""),
-                      "is_secret": False, **common}
+            val = os.environ.get(k, "")
+            if k == "POCKET_TTS_DEFAULT_LANGUAGE" and val:
+                # Canonicalize for display: a compose-env "de-DE" must render
+                # as the matching "de" option, or the select falls back to the
+                # blank first option and the next save clears the live env.
+                from .core import normalize_bcp47
+                val = normalize_bcp47(val)
+            out[k] = {"value": val, "is_secret": False, **common}
     return out

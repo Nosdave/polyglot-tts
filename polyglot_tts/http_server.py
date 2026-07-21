@@ -148,7 +148,11 @@ def _resolve_checkpoint(core: PolyglotCore, lang_hint: str | None,
         ckpt = core.bcp47_to_checkpoint.get(bcp47)
         if ckpt:
             return bcp47, ckpt
-    return core.default_bcp47, core.default_checkpoint
+    # ONE resolver call, not two property reads: a concurrent /api/ui/config
+    # save mutates the env between reads and could pair the old language with
+    # the new checkpoint (normalization vs synthesis mismatch).
+    def_bcp47, def_ckpt, _src = core.default_language()
+    return def_bcp47, def_ckpt
 
 
 def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,  # noqa: PLR0913
