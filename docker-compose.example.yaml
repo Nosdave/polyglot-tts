@@ -26,6 +26,11 @@ services:
     environment:
       POCKET_TTS_LANGUAGES: "english_2026-04,german_24l,french_24l"
       POCKET_TTS_VOICE: "eve"
+      # Language for short replies (below the LID threshold no detection runs).
+      # Empty/unset = first POCKET_TTS_LANGUAGES entry. Recommended: set your
+      # primary language explicitly so list order can never change it.
+      # POCKET_TTS_DEFAULT_LANGUAGE: "de"
+      # POCKET_TTS_MIN_LID_CHARS: "20"
     volumes:
       - ./voices-extra:/app/voices-extra
       - polyglot-hf-cache:/app/.cache/huggingface
