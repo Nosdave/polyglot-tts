@@ -174,6 +174,6 @@ POCKET_TTS_WYOMING_PORT=
 |---|---|
 | Skip warmup (faster start, slower first call) | `POCKET_TTS_WARMUP=false` |
 | Force a specific language regardless of LID | `POCKET_TTS_AUTO_LID=false` + set `POCKET_TTS_LANGUAGES` to that one language |
-| Short replies ("Licht aus") speak the wrong language | `POCKET_TTS_DEFAULT_LANGUAGE=de` (your primary language) — short texts skip LID and fall back to the default |
+| Short replies ("Licht aus") speak the wrong language | `POCKET_TTS_DEFAULT_LANGUAGE=de` (your primary language) — short texts skip LID and fall back to the default. **Using Home Assistant? Clear HA's TTS cache afterwards (`tts.clear_cache`)** — cached audio for repeated short phrases replays in the old language without ever reaching Polyglot; see [HOME_ASSISTANT.md](INTEGRATIONS/HOME_ASSISTANT.md#troubleshooting) |
 | Receive raw input without text normalization | `POCKET_TTS_TEXT_NORM=false` |
 | Disable side-channel timing endpoint | `POCKET_TTS_TIMING_PORT=` |

@@ -53,6 +53,13 @@ will send a language hint when synthesizing; Polyglot honours the hint
 first, falls back to Lingua-based language detection second, and to the
 default language third.
 
+Short replies (below `POCKET_TTS_MIN_LID_CHARS`, default 20 chars — think
+"Licht ausgeschaltet") skip detection entirely and speak the **default
+language**. Since v0.7.3 you should set it explicitly
+(`POCKET_TTS_DEFAULT_LANGUAGE=de` or via the web UI) instead of relying
+on the order of `POCKET_TTS_LANGUAGES` — see
+[CONFIGURATION.md](../CONFIGURATION.md).
+
 Mismatched-language texts (e.g. an English-system pipeline that briefly
 asks Polyglot to speak a French sentence) automatically use the matching
 voice phonetics — that's the whole point of polyglot mode.
@@ -70,5 +77,6 @@ clone a voice from a native sample in that language.
 |---|---|
 | Voice list empty in HA | Container still loading models; wait for "Warmup complete" in logs |
 | Audio cuts off mid-word | Likely the upstream HA streaming-cancel behavior; unrelated to Polyglot. File against [home-assistant/core](https://github.com/home-assistant/core/issues) with a repro if persistent. |
-| Wrong language synthesized | Language hint not sent by HA + text too short for LID (under 20 chars); pass the language hint explicitly via the API, or pre-tag your intent_script responses with a `language` slot |
+| Wrong language synthesized | Language hint not sent by HA + text too short for LID (below `POCKET_TTS_MIN_LID_CHARS`, default 20 chars). Set `POCKET_TTS_DEFAULT_LANGUAGE` to your primary language (v0.7.3+), or pass the language hint explicitly via the API |
+| **Language fix has no effect on short replies** | **HA's TTS cache.** HA caches synthesized audio keyed by text + engine + language + voice and replays it **without ever calling Polyglot** — repeated short confirmations ("Licht ausgeschaltet") are near-certain cache hits. After ANY language/voice/model change on the Polyglot side, stale audio in the old language keeps playing for exactly those phrases, while fresh (long/unique) texts sound correct — which looks like a Polyglot bug but isn't. Fix: call the `tts.clear_cache` service in HA (Developer Tools → Actions), then retest. Diagnosis tip: if the reply doesn't appear in `docker logs polyglot-tts` at all, it was served from HA's cache. |
 | First synthesis very slow | Cold-start CUDA kernel JIT; subsequent calls warm. Set `POCKET_TTS_WARMUP=true` (default) |
