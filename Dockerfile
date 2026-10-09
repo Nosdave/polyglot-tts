@@ -89,7 +89,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ============================================================
 # RUNTIME STAGE
 # ============================================================
-FROM python:3.13-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
