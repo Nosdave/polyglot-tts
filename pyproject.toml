@@ -34,7 +34,7 @@ dependencies = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.30.0",
     "python-multipart>=0.0.18",
-    "watchdog>=4.0.0",
+    "watchdog>=6.0.0",
 ]
 
 [project.optional-dependencies]
