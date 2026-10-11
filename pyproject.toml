@@ -25,7 +25,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "wyoming>=1.5.0",
+    "wyoming>=1.10.2",
     "pocket-tts>=2.1.0",
     "numpy>=1.24.0",
     "soundfile>=0.12.0",
