@@ -32,3 +32,10 @@ updates:
     open-pull-requests-limit: 3
     commit-message:
       prefix: "deps"
+    ignore:
+      # Den Builder ghcr.io/astral-sh/uv:python3.13-bookworm-slim erkennt Dependabot
+      # nicht als Version -> es wuerde nur die Runtime-Stage gebumpt, die kopierten
+      # python3.13-site-packages (cp313-Wheels) laufen unter 3.14 nicht (siehe #5).
+      # Python-Minor nur manuell: beide FROMs und alle python3.13-Pfade gemeinsam.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
