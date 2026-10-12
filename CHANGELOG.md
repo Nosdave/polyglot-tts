@@ -4,6 +4,14 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pin `pocket-tts` below 3.0.** The dependency had no upper bound, so the
+  rolling image tags (`:latest`, `:cuda`, `:cuda13`) rebuilt on 2026-10-12
+  silently picked up pocket-tts 3.3.0. That major version renames internal
+  modules and was never tested with this server. The rolling tags now build
+  with 2.x again until the 3.x upgrade is done and tested (planned for 0.8.0).
+
 ## [0.7.3] – 2026-07-22
 
 ### Added
