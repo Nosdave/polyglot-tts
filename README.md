@@ -7,7 +7,7 @@
 
 ## What it does
 
-- 🌍 **True polyglot** — one voice speaks six languages (en / fr / de / it / es / pt). Automatic per-sentence language detection via [Lingua](https://github.com/pemistahl/lingua-py).
+- 🌍 **True polyglot** — one voice speaks seven languages (en / fr / de / it / es / pt / nl). Automatic per-sentence language detection via [Lingua](https://github.com/pemistahl/lingua-py).
 - ⚡ **Streaming-capable** — audio starts playing while text is still arriving. ~200 ms first chunk on CPU, under 100 ms on GPU.
 - 🏠 **Wyoming endpoint** — plug-and-play with [Home Assistant](https://www.home-assistant.io/voice_control/) Voice-Pipeline and Voice-PE.
 - 🤖 **OpenAI-Speech-compatible HTTP** — works out of the box with [OpenClaw](https://openclaw.ai/), LangChain, custom scripts, and anything else that speaks the OpenAI Speech API.
@@ -42,7 +42,7 @@ docker run -d --gpus all \
 docker run -d \
   -p 10200:10200 -p 10201:10201 \
   -v $(pwd)/voices-extra:/app/voices-extra \
-  -e POCKET_TTS_LANGUAGES=english_2026-04 \
+  -e POCKET_TTS_LANGUAGES=english_2026-09 \
   ghcr.io/nosdave/polyglot-tts:latest
 ```
 
@@ -113,7 +113,7 @@ TTS on the output side.
 
 This project builds on [araa47/wyoming_pocket_tts](https://github.com/araa47/wyoming_pocket_tts), which added the Wyoming protocol layer on top of [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts). Polyglot TTS adds:
 
-- Multi-language same-voice loading (one voice across all six languages)
+- Multi-language same-voice loading (one voice across all seven languages)
 - Lingua-based automatic language detection per sentence
 - HA-aware sentence-buffering for streaming conversational agents
 - num2words-driven text normalization (de / en / fr)
