@@ -4,7 +4,7 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
-## [0.8.0] – unreleased
+## [0.8.0] – 2026-10-13
 
 ### Changed
 
