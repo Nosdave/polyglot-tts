@@ -128,7 +128,8 @@ def is_collapsed(sum_sq: float, n: int) -> bool:
 # Sampling temperature bounds. pocket-tts stores `temp` as a plain mutable
 # attribute on the model and reads it live at every decode step, so it can be
 # changed at runtime (globally or per request) without reloading the model.
-TEMP_MIN, TEMP_MAX, TEMP_DEFAULT = 0.1, 1.5, 0.7
+# 0.3 = Kyutai's default for every shipped checkpoint since pocket-tts 3.3.
+TEMP_MIN, TEMP_MAX, TEMP_DEFAULT = 0.1, 1.5, 0.3
 
 
 def clamp_temperature(raw, default: float = TEMP_DEFAULT) -> float:
