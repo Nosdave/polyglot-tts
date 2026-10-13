@@ -116,12 +116,12 @@ FIELD_META: dict[str, dict] = {
     },
     "POCKET_TTS_TEMP": {
         "type": "number",
-        "help": "Sampling temperature (0.1–1.5, default 0.7). Higher = more "
+        "help": "Sampling temperature (0.1–1.5, default 0.3). Higher = more "
                 "expressive/varied but less stable; lower = flatter/more "
                 "consistent. This is the GLOBAL value and applies live — saving "
                 "it takes effect on the next synthesis, no restart. Override it "
                 "per call with the `temperature` field on POST /v1/audio/speech.",
-        "placeholder": "0.7",
+        "placeholder": "0.3",
     },
     "POCKET_TTS_OUTPUT_GAIN": {
         "type": "number",

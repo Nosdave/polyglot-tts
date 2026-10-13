@@ -29,6 +29,10 @@ All notable changes will be documented here. Semantic versioning.
   (bijv., d.w.z., o.a., enz.). Cloned voices speak Dutch when they have a Dutch
   reference (`<voice>.nl.<ext>`) or a language-neutral one.
 
+- **Default temperature 0.3** (was 0.7) — Kyutai's default for every shipped
+  checkpoint since pocket-tts 3.3. Only applies when `POCKET_TTS_TEMP` is unset;
+  an explicit value (env or web UI) is kept.
+
 ### Removed
 
 - The German „einund…“ → „ein und …“ split (0.7.x). It worked around the old
@@ -37,6 +41,18 @@ All notable changes will be documented here. Semantic versioning.
 
 ### Fixed
 
+- **A custom default voice is now loaded before it is used.** The default voice
+  was encoded before `voices-extra` was read, so a cloned default (e.g.
+  `POCKET_TTS_VOICE=EL_Jarvis`) logged "could not be encoded against any loaded
+  language" at every boot and the warmup ran without a voice. Warmup now also
+  covers languages the default voice has no reference for, using any voice that has one.
+- **No more CUDA out-of-memory at startup on unified-memory GPUs** (DGX Spark /
+  GB10, Jetson). CUDA there allocates only from truly free RAM, not from
+  reclaimable page cache; right after loading, every checkpoint sat in RAM twice
+  (tensors + cached file), so moving four languages to the GPU failed although
+  the host showed tens of GB available. The server now drops the page cache of
+  its model files (`posix_fadvise`, no privileges) before the move. Measured:
+  4 languages need ~6.6 GB GPU memory at steady state, 7.1 GB peak.
 - Pin `pocket-tts` below 3.0 on the 0.7 line. The rolling image tags
   (`:latest`, `:cuda`, `:cuda13`) rebuilt on 2026-10-12 silently picked up
   pocket-tts 3.3.0, which the 0.7.x image could not even import.

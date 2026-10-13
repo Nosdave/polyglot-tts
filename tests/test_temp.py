@@ -16,7 +16,7 @@ def _resolve():
 
 def test_default_when_unset(monkeypatch):
     monkeypatch.delenv("POCKET_TTS_TEMP", raising=False)
-    assert _resolve()() == 0.7
+    assert _resolve()() == 0.3
 
 
 def test_valid_value(monkeypatch):
@@ -31,12 +31,12 @@ def test_comma_decimal(monkeypatch):
 
 def test_out_of_range_falls_back(monkeypatch):
     monkeypatch.setenv("POCKET_TTS_TEMP", "3.0")
-    assert _resolve()() == 0.7
+    assert _resolve()() == 0.3
 
 
 def test_garbage_falls_back(monkeypatch):
     monkeypatch.setenv("POCKET_TTS_TEMP", "hot")
-    assert _resolve()() == 0.7
+    assert _resolve()() == 0.3
 
 
 def test_config_store_exposes_temp():
@@ -55,14 +55,14 @@ def test_config_store_exposes_temp():
 
 def test_clamp_temperature():
     from polyglot_tts.core import clamp_temperature
-    assert clamp_temperature(None) == 0.7
-    assert clamp_temperature("") == 0.7
+    assert clamp_temperature(None) == 0.3
+    assert clamp_temperature("") == 0.3
     assert clamp_temperature("0.4") == 0.4
     assert clamp_temperature("0,9") == 0.9        # comma decimal
     assert clamp_temperature(1.2) == 1.2
-    assert clamp_temperature("3.0") == 0.7        # out of range → default
-    assert clamp_temperature("hot") == 0.7        # unparseable → default
-    assert clamp_temperature("0.05") == 0.7       # below min → default
+    assert clamp_temperature("3.0") == 0.3        # out of range → default
+    assert clamp_temperature("hot") == 0.3        # unparseable → default
+    assert clamp_temperature("0.05") == 0.3       # below min → default
 
 
 def test_set_temperature_applies_to_all_models():
