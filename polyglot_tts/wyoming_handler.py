@@ -120,6 +120,7 @@ def _get_lingua_detector(available: list[str]):
             "it": Language.ITALIAN,
             "es": Language.SPANISH,
             "pt": Language.PORTUGUESE,
+            "nl": Language.DUTCH,
         }
 
     key = frozenset(available)

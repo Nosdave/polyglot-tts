@@ -54,14 +54,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install -r pyproject.toml
 
 # Step 2: trim site-packages — strip docs/tests/headers we don't need at runtime.
-# Verified safe in production: pocket_tts loads fine without these. Done BEFORE
-# the app is installed (deps only here), so this heavy layer stays cached when
-# only our app code changes.
-RUN rm -rf /usr/local/lib/python3.13/site-packages/sympy \
-           /usr/local/lib/python3.13/site-packages/sympy-*.dist-info \
-           /usr/local/lib/python3.13/site-packages/networkx \
-           /usr/local/lib/python3.13/site-packages/networkx-*.dist-info \
-           /usr/local/lib/python3.13/site-packages/pygments \
+# Done BEFORE the app is installed (deps only here), so this heavy layer stays
+# cached when only our app code changes.
+# sympy, networkx and torch/_inductor must STAY: pocket-tts >= 3.0 decorates its
+# attention with @torch.compiler.disable, which imports torch._dynamo, which
+# imports all three at import time (2.x never touched them).
+RUN rm -rf /usr/local/lib/python3.13/site-packages/pygments \
            /usr/local/lib/python3.13/site-packages/Pygments-*.dist-info \
            /usr/local/lib/python3.13/site-packages/pip \
            /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
@@ -69,7 +67,6 @@ RUN rm -rf /usr/local/lib/python3.13/site-packages/sympy \
            /usr/local/lib/python3.13/site-packages/setuptools-*.dist-info \
            /usr/local/lib/python3.13/site-packages/torch/include \
            /usr/local/lib/python3.13/site-packages/torch/share \
-           /usr/local/lib/python3.13/site-packages/torch/_inductor \
            /usr/local/lib/python3.13/site-packages/caffe2 \
     && find /usr/local/lib/python3.13/site-packages -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local/lib/python3.13/site-packages -type d -name "test"  -exec rm -rf {} + 2>/dev/null || true \
@@ -116,6 +113,11 @@ COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/pytho
 # importlib.metadata working so /health reports the real version.
 COPY --from=builder /app-pkg /opt/polyglot-pkg
 ENV PYTHONPATH=/opt/polyglot-pkg
+
+# Fail the build (not the runtime) if the trimmed site-packages broke an import —
+# the 0.7.x trim silently broke pocket-tts 3.x (torch._dynamo needs sympy and
+# torch._inductor), which only showed when the container started.
+RUN python -c "import pocket_tts, polyglot_tts.dispatcher, polyglot_tts.http_server, polyglot_tts.wyoming_handler"
 
 # Run as a non-root user (UID 10001). Owners of mounted volumes (voices-extra,
 # hf-cache) must allow read+write to UID 10001 — see docs/CONFIGURATION.md.

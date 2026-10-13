@@ -212,6 +212,8 @@ _MONTHS: Final[dict[str, list[str]]] = {
            "August", "September", "Oktober", "November", "Dezember"],
     "fr": ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
            "août", "septembre", "octobre", "novembre", "décembre"],
+    "nl": ["januari", "februari", "maart", "april", "mei", "juni", "juli",
+           "augustus", "september", "oktober", "november", "december"],
 }
 
 # Ordinal adverbs for numbered-list enumerators (1-based). Outside this range
@@ -224,6 +226,8 @@ _LIST_ORDINALS: Final[dict[str, list[str]]] = {
     "fr": ["Premièrement", "Deuxièmement", "Troisièmement", "Quatrièmement",
            "Cinquièmement", "Sixièmement", "Septièmement", "Huitièmement",
            "Neuvièmement", "Dixièmement"],
+    "nl": ["Ten eerste", "Ten tweede", "Ten derde", "Ten vierde", "Ten vijfde",
+           "Ten zesde", "Ten zevende", "Ten achtste", "Ten negende", "Ten tiende"],
 }
 
 # Math / relation symbols, spoken per language. Multi-character tokens
@@ -246,6 +250,8 @@ _SYMBOLS: Final[dict[str, dict[str, str]]] = {
            "<": "menor que", ">": "mayor que", "=": "igual"},
     "pt": {"->": "para", "=>": "para", "→": "para", "⇒": "para",
            "<": "menor que", ">": "maior que", "=": "igual"},
+    "nl": {"->": "naar", "=>": "naar", "→": "naar", "⇒": "naar",
+           "<": "kleiner dan", ">": "groter dan", "=": "is gelijk aan"},
 }
 
 # "~" immediately before a number is an approximation: "~10" → "circa 10".
@@ -253,6 +259,7 @@ _SYMBOLS: Final[dict[str, dict[str, str]]] = {
 _APPROX: Final[dict[str, str]] = {
     "de": "circa", "en": "about", "fr": "environ",
     "it": "circa", "es": "aproximadamente", "pt": "aproximadamente",
+    "nl": "ongeveer",
 }
 
 # Currency symbols spoken as a word AFTER the amount, per language: (singular,
@@ -261,13 +268,16 @@ _APPROX: Final[dict[str, str]] = {
 _CURRENCY: Final[dict[str, dict[str, tuple[str, str]]]] = {
     "$": {"de": ("Dollar", "Dollar"), "en": ("dollar", "dollars"),
           "fr": ("dollar", "dollars"), "it": ("dollaro", "dollari"),
-          "es": ("dólar", "dólares"), "pt": ("dólar", "dólares")},
+          "es": ("dólar", "dólares"), "pt": ("dólar", "dólares"),
+          "nl": ("dollar", "dollar")},
     "€": {"de": ("Euro", "Euro"), "en": ("euro", "euros"),
           "fr": ("euro", "euros"), "it": ("euro", "euro"),
-          "es": ("euro", "euros"), "pt": ("euro", "euros")},
+          "es": ("euro", "euros"), "pt": ("euro", "euros"),
+          "nl": ("euro", "euro")},
     "£": {"de": ("Pfund", "Pfund"), "en": ("pound", "pounds"),
           "fr": ("livre", "livres"), "it": ("sterlina", "sterline"),
-          "es": ("libra", "libras"), "pt": ("libra", "libras")},
+          "es": ("libra", "libras"), "pt": ("libra", "libras"),
+          "nl": ("pond", "pond")},
 }
 _CUR_NUM = r"\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?"
 _CUR_BEFORE: Final = re.compile(r"([$€£])\s?(" + _CUR_NUM + r")")
@@ -300,22 +310,22 @@ def _expand_currency(text: str, lang: str) -> str:
 
 # Clock-time connector: "22:57" -> "<h> <connector> <m>". Languages without an
 # entry just get "<h> <m>".
-_TIME_CONNECTOR: Final[dict[str, str]] = {"de": "Uhr", "fr": "heures"}
+_TIME_CONNECTOR: Final[dict[str, str]] = {"de": "Uhr", "fr": "heures", "nl": "uur"}
 
 # A digit:digit colon that is NOT a clock time (e.g. score "2:1", ratio "16:9")
 # → spoken separator. Languages without an entry just lose the colon.
-_RATIO_SEP: Final[dict[str, str]] = {"de": " zu ", "en": " to ", "fr": " à "}
+_RATIO_SEP: Final[dict[str, str]] = {"de": " zu ", "en": " to ", "fr": " à ", "nl": " tegen "}
 
 # A hyphen / en-dash / em-dash between two integers is a "von-bis" range:
 # "10-20" → "10 bis 20". The lookarounds skip dash chains (e.g. ISO "2026-06-14").
 _RANGE_SEP: Final[dict[str, str]] = {"de": "bis", "en": "to", "fr": "à",
-                                     "it": "a", "es": "a", "pt": "a"}
+                                     "it": "a", "es": "a", "pt": "a", "nl": "tot"}
 _RANGE_RE: Final = re.compile(r"(?<![\d.\-–—])(\d+)\s*[-–—]\s*(\d+)(?![\d.\-–—])")
 
 _DATE_RE: Final = re.compile(r"(?<!\d)(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?(?!\d)")
 # Optionally swallow a trailing unit ("22:57 Uhr" → no doubled "Uhr").
 _TIME_RE: Final = re.compile(
-    r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)(?:\s*(?:Uhr|heures?|h)\b)?",
+    r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)(?:\s*(?:Uhr|heures?|uur|h)\b)?",
     re.IGNORECASE)
 _LIST_RE: Final = re.compile(r"(?m)^[ \t]*(\d{1,2})\.[ \t]+")
 # German dative triggers: "am 14.06." → "am vierzehntEN Juni" (not -er).
@@ -344,6 +354,7 @@ _UNIT_FOLLOW_WORDS: Final[dict[str, list[str]]] = {
     "de": ["Grad", "Prozent"], "en": ["degrees?", "percent"],
     "fr": ["degrés?", "pour ?cent"], "it": ["gradi?", "per ?cento"],
     "es": ["grados?", "por ?ciento"], "pt": ["graus?", "por ?cento"],
+    "nl": ["graden", "procent"],
 }
 _UNIT_FOLLOW_RE_CACHE: dict[str, "re.Pattern"] = {}
 
@@ -369,9 +380,10 @@ def _unit_follows(rest: str, lang: str) -> bool:
 
 
 def _expand_dates(text: str, lang: str, n2w) -> str:
-    """Numeric dates 'DD.MM[.]' -> 'vierzehnter Juni' (de) / '14 juin' (fr).
+    """Numeric dates 'DD.MM[.]' -> 'vierzehnter Juni' (de) / '14 juin' (fr) /
+    '14 juni' (nl).
 
-    Only de/fr (German decimals use ',', so 'DD.MM' is unambiguously a date).
+    Only de/fr/nl (their decimals use ',', so 'DD.MM' is unambiguously a date).
     To avoid eating version numbers like '3.5', a dotless 'DD.MM' is treated as
     a date only when the day is > 12 (can't be a month) or a trailing dot marks
     it explicitly. A following unit ('15.3 kWh', '15.3 °C') always wins → number,
@@ -406,9 +418,9 @@ def _expand_dates(text: str, lang: str, n2w) -> str:
             if day.endswith("e"):
                 day = day[:-1] + ("en" if last in _DE_DATIVE_WORDS else "er")
             res = f"{day} {months[mo - 1]}"
-        else:  # fr
+        else:  # fr / nl: cardinal day + month ("quatorze juin", "veertien juni")
             try:
-                day = "premier" if d == 1 else n2w(d, lang="fr")
+                day = "premier" if (lang == "fr" and d == 1) else n2w(d, lang=lang)
             except Exception:  # noqa: BLE001
                 return m.group(0)
             res = f"{day} {months[mo - 1]}"
@@ -567,6 +579,21 @@ _ABBREV: Final[dict[str, dict[str, str]]] = {
         r"\bSr\.": "senhor",
         r"\bnúm\.": "número",
     },
+    "nl": {
+        r"\bd\.\s*w\.\s*z\.": "dat wil zeggen",
+        r"\bo\.\s*a\.": "onder andere",
+        r"\bbijv\.": "bijvoorbeeld",
+        r"\bbv\.": "bijvoorbeeld",
+        r"\benz\.": "enzovoort",
+        r"\bca\.": "circa",
+        r"\bnr\.": "nummer",
+        r"\bincl\.": "inclusief",
+        r"\bexcl\.": "exclusief",
+        r"\bdhr\.": "de heer",
+        r"\bmevr\.": "mevrouw",
+        r"\bdr\.": "dokter",
+        r"\bprof\.": "professor",
+    },
 }
 
 # Compile once. Longest patterns first so multi-token forms (i. d. R.) win
@@ -679,6 +706,20 @@ _UNITS: Final[dict[str, dict[str, str]]] = {
         "ms": "milissegundos", "s": "segundos", "min": "minutos", "h": "horas",
         "hPa": "hectopascais", "mbar": "milibares", "bar": "bar",
     },
+    "nl": {
+        "kWh": "kilowattuur", "MWh": "megawattuur", "Wh": "wattuur",
+        "kW": "kilowatt", "MW": "megawatt", "W": "watt",
+        "°C": "graden Celsius", "°F": "graden Fahrenheit", "K": "kelvin",
+        "kV": "kilovolt", "V": "volt", "mV": "millivolt",
+        "A": "ampère", "mA": "milliampère",
+        "GHz": "gigahertz", "MHz": "megahertz", "kHz": "kilohertz", "Hz": "hertz",
+        "lx": "lux", "lm": "lumen", "dB": "decibel",
+        "%": "procent", "‰": "promille",
+        "km/h": "kilometer per uur", "m/s": "meter per seconde",
+        "km": "kilometer", "m": "meter", "cm": "centimeter", "mm": "millimeter",
+        "ms": "milliseconden", "s": "seconden", "min": "minuten", "h": "uur",
+        "hPa": "hectopascal", "mbar": "millibar", "bar": "bar",
+    },
 }
 
 
@@ -717,16 +758,11 @@ _NUMBER_PATTERN: Final[re.Pattern] = re.compile(
     r"(?<![A-Za-z0-9.])-?(?:\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)(?![A-Za-z0-9])"
 )
 
-# German "einund…" compound numbers (21, 31, 41 … 91) make the 24l DE checkpoint
-# garble: it mis-parses the leading "ein" as the article and collapses the rest
-# ("einunddreißig" → "ein Klund 30"). Splitting "ein" from "und" gives the model
-# a clean token boundary and it speaks the number reliably ("ein und dreißig").
-# Verified via STT round-trip 2026-07 (3/3 clean vs 0/3 for the joined form; the
-# split must be after "ein" — "einund dreißig" still garbles). Other tens
-# (zweiund…, fünfund…) are unaffected, so the lookahead keeps this numeric-only.
-_EINUND_RE: Final[re.Pattern] = re.compile(
-    r"einund(?=zwanzig|dreißig|vierzig|fünfzig|sechzig|siebzig|achtzig|neunzig)"
-)
+# (Removed in 0.8.0: the "einund…" → "ein und …" split for German compound
+# numbers. It worked around the pocket-tts 2.x german_24l checkpoint garbling
+# "einunddreißig"; the retrained 3.3 checkpoint reads the joined form cleanly —
+# STT round-trip 2026-10-13: 3/3 joined clean, while the split form is now heard
+# literally as "ein und zwanzig".)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -801,13 +837,13 @@ def _german_ordinals(text: str, n2w) -> str:
 
 # Languages that write '.' as the thousands separator and ',' as the decimal
 # point ("1.000,50"). English (and unlisted langs) use the opposite ("1,000.50").
-_DOT_THOUSANDS_LANGS: Final = {"de", "fr", "es", "it", "pt"}
+_DOT_THOUSANDS_LANGS: Final = {"de", "fr", "es", "it", "pt", "nl"}
 
 
 def _parse_number(s: str, lang: str) -> float | None:
     """Parse a localized number string to float.
 
-    Locale-aware: de/fr/es/it/pt use ',' as decimal and '.' as the thousands
+    Locale-aware: de/fr/es/it/pt/nl use ',' as decimal and '.' as the thousands
     separator (so "1.000" is one thousand, not 1.0); English the other way.
     A lone '.' that is NOT a 3-digit grouping (e.g. "3.5") is read as a decimal
     point in every locale — LLMs are inconsistent and a version like "3.5"
@@ -834,7 +870,7 @@ def normalize(text: str, lang: str = "de") -> str:
 
     Args:
         text: raw input (may contain Markdown, units, special chars)
-        lang: BCP47 language code (de/en/fr/it/es/pt have unit maps;
+        lang: BCP47 language code (de/en/fr/it/es/pt/nl have unit maps;
               any other language num2words supports still gets correct
               number-to-words).
 
@@ -947,12 +983,6 @@ def normalize(text: str, lang: str = "de") -> str:
                 _LOGGER.debug("num2words(%r) failed: %s", n, e)
                 return m.group(0)
         out = _NUMBER_PATTERN.sub(_expand_number, out)
-
-    # 6b: Split the "einund…" prefix of German compound numbers so the checkpoint
-    # stops garbling them (see _EINUND_RE). Runs after all number expansion so it
-    # catches every path (units, standalone, currency, ordinals, decimals).
-    if lang == "de":
-        out = _EINUND_RE.sub("ein und ", out)
 
     # 7: Collapse whitespace
     out = re.sub(r"\s+", " ", out).strip()

@@ -163,3 +163,45 @@ def test_en_abbreviations():
 
 def test_fr_abbreviations():
     assert normalize("Prends p. ex. du lait.", lang="fr") == "Prends par exemple du lait."
+
+
+# ── Dutch (pocket-tts 3.3 ships dutch / dutch_24l) ─────────────────────────
+
+
+def nl(s: str) -> str:
+    return normalize(s, lang="nl")
+
+
+def test_nl_units_and_decimal_comma():
+    out = nl("Het is 21,5 °C en de batterij staat op 87 %.")
+    assert "eenentwintig komma vijf graden Celsius" in out
+    assert "zevenentachtig procent" in out
+
+
+def test_nl_thousands_dot():
+    assert "duizendtweehonderdvijftig" in nl("Dat kost 1.250 euro.")
+
+
+def test_nl_time_date_range():
+    out = nl("Om 14:30 uur op 14.06.2026, 3-5 dagen.")
+    assert "veertien uur dertig" in out
+    assert "uur uur" not in out
+    assert "veertien juni tweeduizendzesentwintig" in out
+    assert "drie tot vijf" in out
+
+
+def test_nl_list_symbols_abbreviations():
+    out = nl("1. Licht aan\n2. Rolluik dicht")
+    assert out.startswith("Ten eerste, Licht aan.")
+    assert "Ten tweede" in out
+    assert nl("Neem bijv. melk.") == "Neem bijvoorbeeld melk."
+    assert "dat wil zeggen" in nl("d.w.z. later")
+    assert "ongeveer tien kilowattuur" in nl("~10 kWh")
+    assert "twee tegen één" in nl("Score 2:1")
+    assert "drie kleiner dan vijf" in nl("3 < 5")
+
+
+def test_nl_numbers_never_german():
+    out = nl("Er zijn 31 lampen aan.")
+    assert "eenendertig" in out
+    assert "dreißig" not in out

@@ -24,7 +24,7 @@ services:
       - "10201:10201"   # OpenAI-Speech HTTP (OpenClaw, scripts, ...)
       - "10299:10299"   # Side-channel timing endpoint (optional)
     environment:
-      POCKET_TTS_LANGUAGES: "english_2026-04,german_24l,french_24l"
+      POCKET_TTS_LANGUAGES: "english_2026-09,german_24l,french_24l"
       POCKET_TTS_VOICE: "eve"
       # Language for short replies (below the LID threshold no detection runs).
       # Empty/unset = first POCKET_TTS_LANGUAGES entry. Recommended: set your
@@ -57,7 +57,7 @@ services:
       - "10201:10201"
       - "10299:10299"
     environment:
-      POCKET_TTS_LANGUAGES: "english_2026-04,german_24l,french_24l"
+      POCKET_TTS_LANGUAGES: "english_2026-09,german_24l,french_24l"
       POCKET_TTS_VOICE: "eve"
       POCKET_TTS_DEVICE: "cuda"
       # Uncomment to require a token for the web UI (recommended if the
@@ -82,7 +82,7 @@ services:
     ports:
       - "10201:10201"   # HTTP only, no Wyoming
     environment:
-      POCKET_TTS_LANGUAGES: "english_2026-04"
+      POCKET_TTS_LANGUAGES: "english_2026-09"
       POCKET_TTS_VOICE: "eve"
       POCKET_TTS_WYOMING_PORT: ""   # disable Wyoming
     volumes:

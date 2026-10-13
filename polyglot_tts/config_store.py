@@ -61,10 +61,10 @@ FIELD_META: dict[str, dict] = {
     "POCKET_TTS_LANGUAGES": {
         "type": "text",
         "help": "Comma-separated language checkpoints to load. Each adds ~1.3 GB RAM.",
-        "placeholder": "english_2026-04,german_24l,french_24l",
+        "placeholder": "english_2026-09,german_24l,french_24l",
         "options": [
-            "english_2026-04", "german_24l", "french_24l",
-            "italian_24l", "spanish_24l", "portuguese_24l",
+            "english_2026-09", "german_24l", "french_24l",
+            "italian_24l", "spanish_24l", "portuguese_24l", "dutch_24l",
         ],
     },
     "POCKET_TTS_VOICE": {
@@ -87,7 +87,7 @@ FIELD_META: dict[str, dict] = {
                 "than the LID threshold (detection never runs there). Empty = "
                 "first entry of POCKET_TTS_LANGUAGES. Must be a loaded "
                 "language, otherwise the first loaded wins. Applies live.",
-        "options": ["", "de", "en", "fr", "it", "es", "pt"],
+        "options": ["", "de", "en", "fr", "it", "es", "pt", "nl"],
     },
     "POCKET_TTS_MIN_LID_CHARS": {
         "type": "number",
@@ -116,12 +116,12 @@ FIELD_META: dict[str, dict] = {
     },
     "POCKET_TTS_TEMP": {
         "type": "number",
-        "help": "Sampling temperature (0.1–1.5, default 0.7). Higher = more "
+        "help": "Sampling temperature (0.1–1.5, default 0.3). Higher = more "
                 "expressive/varied but less stable; lower = flatter/more "
                 "consistent. This is the GLOBAL value and applies live — saving "
                 "it takes effect on the next synthesis, no restart. Override it "
                 "per call with the `temperature` field on POST /v1/audio/speech.",
-        "placeholder": "0.7",
+        "placeholder": "0.3",
     },
     "POCKET_TTS_OUTPUT_GAIN": {
         "type": "number",

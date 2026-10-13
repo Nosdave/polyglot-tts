@@ -6,7 +6,7 @@ PolyglotCore, and starts every endpoint requested.
 Environment variables
 ---------------------
 POCKET_TTS_LANGUAGES        Comma-separated Pocket-TTS language checkpoints
-                            (default: english_2026-04,german_24l,french_24l)
+                            (default: english_2026-09,german_24l,french_24l)
 POCKET_TTS_VOICE            Default voice when none specified per request
                             (default: eve)
 POCKET_TTS_VOICES_DIR       Built-in voices dir, baked into image
@@ -79,10 +79,43 @@ def _resolve_temp() -> float:
 
     This only sets the starting value — `model.temp` is read live at each decode
     step, so it can be changed afterwards globally (UI/config) or per request
-    (HTTP), without a reload. Clamped to [0.1, 1.5]; bad/empty input → 0.7.
+    (HTTP), without a reload. Clamped to [0.1, 1.5]; bad/empty input → 0.3.
     """
     from .core import clamp_temperature
     return clamp_temperature(os.environ.get("POCKET_TTS_TEMP", "").strip() or None)
+
+
+def _drop_page_cache(root: str) -> None:
+    """Ask the kernel to drop the page cache of the model files just read.
+
+    On unified-memory GPUs (DGX Spark / GB10, Jetson) CUDA can only allocate
+    from truly free RAM, not from reclaimable page cache. Right after loading,
+    every checkpoint sits in RAM twice (the CPU tensors plus the cached
+    .safetensors file), so the following move to the GPU could fail with
+    "CUDA error: out of memory" although the host reports plenty available.
+    posix_fadvise(DONTNEED) needs no privileges and only touches these files.
+    """
+    if not hasattr(os, "posix_fadvise"):
+        return
+    freed = 0
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            if not name.endswith(".safetensors"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                fd = os.open(path, os.O_RDONLY)
+            except OSError:
+                continue
+            try:
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                freed += os.fstat(fd).st_size
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
+    if freed:
+        _LOGGER.info("Dropped page cache of model files (%.1f GB)", freed / 1e9)
 
 
 def _load_models(checkpoints: list[str], device_pref: str) -> dict:
@@ -114,6 +147,8 @@ def _load_models(checkpoints: list[str], device_pref: str) -> dict:
             _LOGGER.warning("CUDA requested but not available — staying on CPU")
         else:
             dev = torch.device("cuda")
+            _drop_page_cache(os.path.join(
+                os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface")), "hub"))
             _LOGGER.info("Moving %d model(s) to GPU (%s)",
                          len(models), torch.cuda.get_device_name(0))
             import gc
@@ -144,15 +179,24 @@ def _warmup(core: PolyglotCore) -> None:
     warmup_texts = {
         "german_24l":      ["Moment.", "Das ist ein kurzer Aufwärmtest."],
         "french_24l":      ["Moment.", "Ceci est un test rapide."],
+        "english_2026-09": ["Sure.",   "This is a short warmup test."],
         "english_2026-04": ["Sure.",   "This is a short warmup test."],
         "italian_24l":     ["Certo.",  "Questo è un test rapido."],
         "spanish_24l":     ["Claro.",  "Esta es una prueba rápida."],
         "portuguese_24l":  ["Claro.",  "Este é um teste rápido."],
+        "dutch_24l":       ["Moment.", "Dit is een korte opwarmtest."],
     }
     _LOGGER.info("Warming up %d model(s) ...", len(core.models))
     for ckpt, model in core.models.items():
         state = default_state_per_lang.get(ckpt)
         if state is None:
+            # The default voice has no reference for this language (e.g. a
+            # cloned voice with de/en/fr files but no Dutch one): warm the
+            # model with any voice that has, so its first real request isn't
+            # the one paying for kernel compilation.
+            state = next((v[ckpt] for v in core.voice_states.values() if ckpt in v), None)
+        if state is None:
+            _LOGGER.info("Warmup %s skipped — no voice encoded for it", ckpt)
             continue
         texts = warmup_texts.get(ckpt, ["Hello.", "This is a warmup."])
         t0 = time.perf_counter()
@@ -244,7 +288,7 @@ async def run() -> None:
         "POCKET_TTS_LANGUAGES",
         os.environ.get(
             "POCKET_TTS_LANGUAGE",
-            "english_2026-04,german_24l,french_24l",
+            "english_2026-09,german_24l,french_24l",
         ),
     )
     checkpoints = [s.strip() for s in languages_env.split(",") if s.strip()]
@@ -294,7 +338,14 @@ async def run() -> None:
     _LOGGER.info("Default language: %s (checkpoint=%s, source=%s)",
                  def_bcp47, def_ckpt, def_source)
 
-    # 3) Encode default voice (if it's a preset)
+    # 3) Load initial voices from voices-extra (synchronous; later changes via
+    #    watcher). Must run BEFORE the default voice is resolved: a custom
+    #    default (e.g. a cloned "EL_Jarvis") only exists once its files are
+    #    loaded. Up to 0.7.3 the order was reversed, so a custom default voice
+    #    logged "could not be encoded" at boot and warmup ran without a voice.
+    load_initial_voices(core, [voices_extra_dir])
+
+    # 4) Encode the default voice if it is still unknown (i.e. a preset)
     if default_voice and default_voice not in core.voice_states:
         _LOGGER.info("Encoding default voice: %s", default_voice)
         per_lang = core.encode_voice(default_voice)
@@ -303,9 +354,6 @@ async def run() -> None:
         else:
             _LOGGER.error("Default voice %r could not be encoded "
                           "against any loaded language", default_voice)
-
-    # 4) Load initial voices from voices-extra (synchronous; later changes via watcher)
-    load_initial_voices(core, [voices_extra_dir])
 
     # 5) Warmup
     _warmup(core)

@@ -19,16 +19,17 @@ At least one of the Wyoming or HTTP ports must be non-empty.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `POCKET_TTS_LANGUAGES` | `english_2026-04,german_24l,french_24l` | Comma-separated list of Pocket-TTS checkpoint names to load at startup. |
+| `POCKET_TTS_LANGUAGES` | `english_2026-09,german_24l,french_24l` | Comma-separated list of Pocket-TTS checkpoint names to load at startup. |
 
-Available checkpoints today:
+Available checkpoints today (pocket-tts 3.3):
 
-- `english_2026-04`
+- `english_2026-09` (default English; robustness fine-tune), `english_2026-09_24l`, `english_2026-04`
 - `german_24l`
-- `french_24l`
+- `french_24l`, `french`
 - `italian_24l`
 - `spanish_24l`
 - `portuguese_24l`
+- `dutch_24l` (built-in voice `daan`)
 
 Loading more languages multiplies RAM usage. The Lingua-based LID picks
 which checkpoint to use per request.
@@ -87,7 +88,7 @@ model speaks it from a native-language reference -> no cross-language accent.
 | `POCKET_TTS_MIN_LID_CHARS` | `20` | Minimum text length (chars) before Lingua LID runs; shorter replies speak the default language. Clamped to `4`–`500`. Lowering it catches short foreign-language replies, but very short phrases can misroute (`"Okay"` legitimately detects as English). Applies **live**. |
 | `POCKET_TTS_LAZY_LOAD` | `false` | **Declared but not yet implemented** — slated for 0.6.0. Today: all languages listed in `POCKET_TTS_LANGUAGES` are loaded eagerly at startup. |
 | `POCKET_TTS_MIN_SYNTH_CHARS` | `30` | First-flush threshold for streaming. Lower = faster first audio at the cost of less natural prosody. |
-| `POCKET_TTS_TEMP` | `0.7` | Sampling temperature (`0.1`–`1.5`). Higher = more expressive/varied but less stable; lower = flatter/more consistent. Sets the **global** value (all voices and languages). Applies **live** — `model.temp` is read at each decode step, so saving it via the UI/config takes effect on the next synthesis with no restart. Override per call with the `temperature` field on `POST /v1/audio/speech`. |
+| `POCKET_TTS_TEMP` | `0.3` | Sampling temperature (`0.1`–`1.5`). Higher = more expressive/varied but less stable; lower = flatter/more consistent. Sets the **global** value (all voices and languages). Applies **live** — `model.temp` is read at each decode step, so saving it via the UI/config takes effect on the next synthesis with no restart. Override per call with the `temperature` field on `POST /v1/audio/speech`. |
 | `POCKET_TTS_OUTPUT_GAIN` | `1.0` | Output volume multiplier (`0.0`–`4.0`). `1.0` = unchanged, `<1` quieter, `>1` louder; the signal is clipped to full scale after scaling (very high values distort). Applies **live** to both endpoints. Override per call with the `gain` field on `POST /v1/audio/speech`. |
 | `POCKET_TTS_VOICE_NORMALIZE` | `true` | Loudness-normalize a voice sample (EBU R128 `loudnorm`) when cloning, so a quiet recording still makes a strong voice prompt. Read at clone time; needs ffmpeg (bundled in the image). |
 | `POCKET_TTS_LOG_LEVEL` | `INFO` | Standard Python log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
