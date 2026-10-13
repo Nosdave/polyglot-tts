@@ -112,6 +112,7 @@ const LANG_SLOTS = [
   { key: "it", label: "Italiano" },
   { key: "es", label: "Español" },
   { key: "pt", label: "Português" },
+  { key: "nl", label: "Nederlands" },
 ];
 const SLOTS = {};        // lang-key -> {blob, filename}
 let FALLBACK_KEY = "";   // which slot's audio also serves the untagged fallback

@@ -4,6 +4,19 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.8.1] – 2026-10-13
+
+### Fixed
+
+- Web UI: the voice-cloning dialog now offers a **Nederlands** upload slot, so a
+  cloned voice can get its own Dutch reference (`<voice>.nl.<ext>`).
+
+### Changed
+
+- Unit tests: two voice-watcher tests that called removed internals were
+  replaced by one test of the current behaviour (deleting `myvoice.m4a` keeps
+  the voice from `myvoice.wav`; deleting the last file drops it).
+
 ## [0.8.0] – 2026-10-13
 
 ### Changed
