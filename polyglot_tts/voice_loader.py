@@ -158,7 +158,7 @@ def _known_lang_tags() -> set[str]:
             from .core import LANGUAGE_TO_BCP47
             _lang_tags_cache = {b.lower() for b in LANGUAGE_TO_BCP47.values()}
         except Exception:  # noqa: BLE001
-            _lang_tags_cache = {"de", "en", "fr", "it", "es", "pt"}
+            _lang_tags_cache = {"de", "en", "fr", "it", "es", "pt", "nl"}
     return _lang_tags_cache
 
 
