@@ -3,7 +3,8 @@ audio-format passthrough helper. These cover the two bugs found during the
 first real Spark deployment:
 
   1. Deleting myvoice.m4a wrongly removed the voice registered from
-     myvoice.wav (stem collision in on_deleted).
+     myvoice.wav (stem collision in on_deleted). Since 0.6 the watcher
+     rebuilds a voice from its remaining files, which the test now checks.
   2. m4a files were accepted by the watcher but failed to decode.
 """
 
@@ -22,42 +23,34 @@ class _FakeCore:
         self.voices: dict[str, dict] = {}
         self.models = {"german_24l": object()}
 
-    def encode_voice(self, source):
-        return {"german_24l": "state"}
-
     def add_voice(self, name: str, per_lang: dict) -> None:
         self.voices[name] = per_lang
 
     def remove_voice(self, name: str) -> bool:
-        existed = name in self.voices
-        self.voices.pop(name, None)
-        return existed
+        return self.voices.pop(name, None) is not None
+
+    def set_voice_sources(self, name: str, sources: dict) -> None:
+        pass
 
 
-def test_delete_unrelated_stem_keeps_voice(tmp_path: Path) -> None:
+def test_delete_other_file_with_same_stem_keeps_voice(tmp_path: Path, monkeypatch) -> None:
+    """Deleting myvoice.m4a must not drop the voice that myvoice.wav provides:
+    the watcher rebuilds a voice from the files that remain and only drops it
+    when none are left."""
+    monkeypatch.setattr("polyglot_tts.voice_loader.build_voice_states",
+                        lambda files, core: {"german_24l": "state"} if files else {})
     core = _FakeCore()
     handler = _VoiceFolderHandler(core, tmp_path)
+    wav = tmp_path / "myvoice.wav"
+    wav.write_bytes(b"\x00")
+    core.add_voice("myvoice", {"german_24l": "state"})
 
-    # myvoice.wav registered the voice
-    core.add_voice("myvoice", {"de": "state"})
-    handler._voice_source["myvoice"] = str(tmp_path / "myvoice.wav")
-
-    # Deleting myvoice.m4a (a DIFFERENT file with the same stem) must NOT
-    # drop the voice that came from myvoice.wav.
-    handler._remove_if_source(tmp_path / "myvoice.m4a")
+    handler._process_remove(tmp_path / "myvoice.m4a")   # already gone, same stem
     assert "myvoice" in core.voices
 
-    # Deleting the actual source file does remove it.
-    handler._remove_if_source(tmp_path / "myvoice.wav")
+    wav.unlink()
+    handler._process_remove(wav)                        # last reference removed
     assert "myvoice" not in core.voices
-
-
-def test_delete_untracked_voice_is_noop(tmp_path: Path) -> None:
-    core = _FakeCore()
-    handler = _VoiceFolderHandler(core, tmp_path)
-    # No source recorded → deleting anything is a safe no-op.
-    handler._remove_if_source(tmp_path / "ghost.wav")
-    assert core.voices == {}
 
 
 def test_ensure_decodable_native_passthrough(tmp_path: Path) -> None:
