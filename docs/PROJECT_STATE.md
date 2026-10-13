@@ -8,7 +8,7 @@ this before changing anything. Last updated: 2026-05-31, at v0.5.6.
 ## 1. What this project is
 
 **Polyglot TTS** is a self-hosted text-to-speech server. One cloned voice
-speaks six languages; it streams audio; it exposes two network protocols
+speaks seven languages; it streams audio; it exposes two network protocols
 so it works with both Home Assistant and OpenAI-Speech clients (OpenClaw,
 scripts, etc.). It ships as a Docker image users `docker pull` and run.
 
@@ -86,7 +86,7 @@ Full list in `docs/CONFIGURATION.md`. The ones you'll actually touch:
 
 | Var | Default | Notes |
 |---|---|---|
-| `POCKET_TTS_LANGUAGES` | `english_2026-04,german_24l,french_24l` | comma-sep checkpoints; each adds ~1.3 GB RAM. Singular `POCKET_TTS_LANGUAGE` is a back-compat fallback. |
+| `POCKET_TTS_LANGUAGES` | `english_2026-09,german_24l,french_24l` | comma-sep checkpoints; each adds ~1.3 GB RAM. Singular `POCKET_TTS_LANGUAGE` is a back-compat fallback. |
 | `POCKET_TTS_VOICE` | `eve` | default voice |
 | `POCKET_TTS_DEVICE` | `auto` | auto/cpu/cuda |
 | `POCKET_TTS_VOICES_EXTRA_DIR` | `/app/voices-extra` | watched dir for voice cloning |

@@ -88,7 +88,7 @@ services:
       - "10200:10200"
       - "10201:10201"
     environment:
-      POCKET_TTS_LANGUAGES: "english_2026-04,german_24l,french_24l"
+      POCKET_TTS_LANGUAGES: "english_2026-09,german_24l,french_24l"
       POCKET_TTS_VOICE: "eve"
       POCKET_TTS_DEVICE: "cuda"
     volumes:
