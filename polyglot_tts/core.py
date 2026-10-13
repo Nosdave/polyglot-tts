@@ -30,15 +30,17 @@ LANGUAGE_TO_BCP47: dict[str, str] = {
     "spanish":    "es",
     "portuguese": "pt",
     "english":    "en",
+    "dutch":      "nl",
 }
 
 BCP47_TO_CHECKPOINT: dict[str, str] = {
     "de": "german_24l",
     "fr": "french_24l",
-    "en": "english_2026-04",
+    "en": "english_2026-09",
     "it": "italian_24l",
     "es": "spanish_24l",
     "pt": "portuguese_24l",
+    "nl": "dutch_24l",
 }
 
 ALL_PRESET_VOICES: list[str] = [
@@ -46,7 +48,7 @@ ALL_PRESET_VOICES: list[str] = [
     "george", "mary", "jane", "michael", "eve",
     "bill_boerst", "peter_yearsley", "stuart_bell", "caro_davy",
     "cosette", "marius", "javert", "jean",
-    "estelle", "giovanni", "lola", "juergen", "rafael",
+    "estelle", "giovanni", "lola", "juergen", "rafael", "daan",
 ]
 
 SAMPLE_RATE = 24000
@@ -494,13 +496,19 @@ def available_checkpoints() -> list[dict]:
 
     names = sorted(set(names))
     if not names:
-        # Static fallback (pocket-tts 2.1.0).
+        # Static fallback (pocket-tts 3.3.0).
         names = [
-            "english_2026-04", "english_2026-01", "english",
-            "french_24l", "german", "german_24l",
+            "english_2026-09", "english_2026-09_24l", "english_2026-04",
+            "english_2026-04_24l", "english_2026-01", "english",
+            "french", "french_24l", "german", "german_24l",
             "italian", "italian_24l", "spanish", "spanish_24l",
-            "portuguese", "portuguese_24l",
+            "portuguese", "portuguese_24l", "dutch", "dutch_24l",
         ]
+
+    # The newest dated English checkpoint ("english_2026-09") is "latest".
+    dated = sorted(n.split("_")[1] for n in names
+                   if n.startswith("english_") and n.split("_")[1][:2] == "20")
+    newest_en = dated[-1] if dated else None
 
     out = []
     for n in names:
@@ -510,7 +518,7 @@ def available_checkpoints() -> list[dict]:
         if n.endswith("_24l"):
             quality = "high (24-layer)"
         elif n.startswith("english"):
-            quality = "latest" if "2026-04" in n else "older"
+            quality = "latest" if newest_en and newest_en in n else "older"
         else:
             quality = "fast (smaller)"
         out.append({"checkpoint": n, "bcp47": bcp47, "quality": quality})

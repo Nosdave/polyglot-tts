@@ -6,7 +6,7 @@ PolyglotCore, and starts every endpoint requested.
 Environment variables
 ---------------------
 POCKET_TTS_LANGUAGES        Comma-separated Pocket-TTS language checkpoints
-                            (default: english_2026-04,german_24l,french_24l)
+                            (default: english_2026-09,german_24l,french_24l)
 POCKET_TTS_VOICE            Default voice when none specified per request
                             (default: eve)
 POCKET_TTS_VOICES_DIR       Built-in voices dir, baked into image
@@ -144,10 +144,12 @@ def _warmup(core: PolyglotCore) -> None:
     warmup_texts = {
         "german_24l":      ["Moment.", "Das ist ein kurzer Aufwärmtest."],
         "french_24l":      ["Moment.", "Ceci est un test rapide."],
+        "english_2026-09": ["Sure.",   "This is a short warmup test."],
         "english_2026-04": ["Sure.",   "This is a short warmup test."],
         "italian_24l":     ["Certo.",  "Questo è un test rapido."],
         "spanish_24l":     ["Claro.",  "Esta es una prueba rápida."],
         "portuguese_24l":  ["Claro.",  "Este é um teste rápido."],
+        "dutch_24l":       ["Moment.", "Dit is een korte opwarmtest."],
     }
     _LOGGER.info("Warming up %d model(s) ...", len(core.models))
     for ckpt, model in core.models.items():
@@ -244,7 +246,7 @@ async def run() -> None:
         "POCKET_TTS_LANGUAGES",
         os.environ.get(
             "POCKET_TTS_LANGUAGE",
-            "english_2026-04,german_24l,french_24l",
+            "english_2026-09,german_24l,french_24l",
         ),
     )
     checkpoints = [s.strip() for s in languages_env.split(",") if s.strip()]

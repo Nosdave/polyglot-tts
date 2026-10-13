@@ -61,10 +61,10 @@ FIELD_META: dict[str, dict] = {
     "POCKET_TTS_LANGUAGES": {
         "type": "text",
         "help": "Comma-separated language checkpoints to load. Each adds ~1.3 GB RAM.",
-        "placeholder": "english_2026-04,german_24l,french_24l",
+        "placeholder": "english_2026-09,german_24l,french_24l",
         "options": [
-            "english_2026-04", "german_24l", "french_24l",
-            "italian_24l", "spanish_24l", "portuguese_24l",
+            "english_2026-09", "german_24l", "french_24l",
+            "italian_24l", "spanish_24l", "portuguese_24l", "dutch_24l",
         ],
     },
     "POCKET_TTS_VOICE": {
@@ -87,7 +87,7 @@ FIELD_META: dict[str, dict] = {
                 "than the LID threshold (detection never runs there). Empty = "
                 "first entry of POCKET_TTS_LANGUAGES. Must be a loaded "
                 "language, otherwise the first loaded wins. Applies live.",
-        "options": ["", "de", "en", "fr", "it", "es", "pt"],
+        "options": ["", "de", "en", "fr", "it", "es", "pt", "nl"],
     },
     "POCKET_TTS_MIN_LID_CHARS": {
         "type": "number",

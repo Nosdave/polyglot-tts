@@ -1,6 +1,6 @@
 [project]
 name = "polyglot-tts"
-version = "0.7.3"
+version = "0.8.0"
 description = "Multi-language, streaming-capable TTS server with voice cloning. Wyoming + OpenAI-Speech endpoints. Powered by Kyutai Pocket TTS."
 readme = "README.md"
 license = "MIT"
@@ -26,7 +26,7 @@ classifiers = [
 
 dependencies = [
     "wyoming>=1.10.2",
-    "pocket-tts>=2.1.0,<3",
+    "pocket-tts>=3.3.0,<4",
     "numpy>=1.24.0",
     "soundfile>=0.12.0",
     "lingua-language-detector>=2.0.0",

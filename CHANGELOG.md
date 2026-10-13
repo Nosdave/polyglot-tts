@@ -4,13 +4,42 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.8.0] – unreleased
+
+### Changed
+
+- **pocket-tts 3.3** (was 2.1). Kyutai's 3.x line retrains German, adds a
+  robustness fine-tune for English (`english_2026-09`, now the default English
+  checkpoint) and updates French. The public `TTSModel` API this server uses is
+  unchanged. Measured on a DGX Spark against 0.7.3 (same voice, temperature
+  0.7, STT round-trip): German short replies like „Licht aus.“ / „Erledigt.“
+  came back clean 14/15 instead of 4/15; English sentences improved, French
+  unchanged.
+- **Docker image keeps `sympy`, `networkx` and `torch/_inductor`.** pocket-tts
+  3.x decorates its attention with `@torch.compiler.disable`, which imports
+  `torch._dynamo` and with it all three; the 0.7.x trim removed them. The build
+  now imports the app once and fails if the trim ever breaks an import again.
+
+### Added
+
+- **Dutch** (`dutch_24l`, BCP47 `nl`): language detection, the built-in Dutch
+  voice `daan`, and text normalization — numbers (`1.250,50`), units, dates
+  („14 juni"), clock times („veertien uur dertig"), ranges („drie tot vijf"),
+  list markers („Ten eerste"), symbols, currencies and common abbreviations
+  (bijv., d.w.z., o.a., enz.). Cloned voices speak Dutch when they have a Dutch
+  reference (`<voice>.nl.<ext>`) or a language-neutral one.
+
+### Removed
+
+- The German „einund…“ → „ein und …“ split (0.7.x). It worked around the old
+  `german_24l` checkpoint garbling „einunddreißig"; the retrained checkpoint
+  reads the joined form cleanly (3/3) and now speaks the split form literally.
+
 ### Fixed
 
-- **Pin `pocket-tts` below 3.0.** The dependency had no upper bound, so the
-  rolling image tags (`:latest`, `:cuda`, `:cuda13`) rebuilt on 2026-10-12
-  silently picked up pocket-tts 3.3.0. That major version renames internal
-  modules and was never tested with this server. The rolling tags now build
-  with 2.x again until the 3.x upgrade is done and tested (planned for 0.8.0).
+- Pin `pocket-tts` below 3.0 on the 0.7 line. The rolling image tags
+  (`:latest`, `:cuda`, `:cuda13`) rebuilt on 2026-10-12 silently picked up
+  pocket-tts 3.3.0, which the 0.7.x image could not even import.
 
 ## [0.7.3] – 2026-07-22
 
