@@ -4,6 +4,16 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.8.2] – 2026-10-14
+
+### Fixed
+
+- Text normalization: raw URLs are spoken as "Link zu <host>" (localized for
+  de/en/fr/nl/it/es/pt), file paths and long token/hash strings are dropped.
+  Before, an LLM answer containing e.g. an OAuth callback URL became one
+  200+-token chunk the model could not voice, and the request ran into the
+  client timeout.
+
 ## [0.8.1] – 2026-10-13
 
 ### Fixed

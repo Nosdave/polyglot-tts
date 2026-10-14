@@ -82,7 +82,7 @@ model speaks it from a native-language reference -> no cross-language accent.
 | Variable | Default | What it does |
 |---|---|---|
 | `POCKET_TTS_WARMUP` | `true` | Run a short synthesis per loaded language at startup to warm up JIT-compiled CUDA kernels and worker threads. |
-| `POCKET_TTS_TEXT_NORM` | `true` | Apply Markdown-strip, unit-expansion, number-to-words before synthesis. |
+| `POCKET_TTS_TEXT_NORM` | `true` | Apply Markdown-strip, URL handling (spoken as "link to <host>"; paths and token strings dropped), unit-expansion, number-to-words before synthesis. |
 | `POCKET_TTS_AUTO_LID` | `true` | Enable Lingua-based per-sentence language detection. |
 | `POCKET_TTS_DEFAULT_LANGUAGE` | *(empty)* | BCP47 code (`de`, `en`, …) spoken when no language hint is given **and** the text is shorter than `POCKET_TTS_MIN_LID_CHARS` (detection never runs there). Empty = legacy behaviour: the first `POCKET_TTS_LANGUAGES` entry. Must be one of the loaded languages, otherwise it logs a warning and the first loaded wins. Applies **live**. |
 | `POCKET_TTS_MIN_LID_CHARS` | `20` | Minimum text length (chars) before Lingua LID runs; shorter replies speak the default language. Clamped to `4`–`500`. Lowering it catches short foreign-language replies, but very short phrases can misroute (`"Okay"` legitimately detects as English). Applies **live**. |

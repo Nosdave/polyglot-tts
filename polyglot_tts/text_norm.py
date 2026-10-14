@@ -77,6 +77,44 @@ _MD_PATTERNS: Final[list[tuple[re.Pattern, str]]] = [
     (re.compile(r"^[-:|\s]+$", re.M), ""),              # table separators
 ]
 
+# URLs and code-like tokens. An LLM answer read aloud may contain raw links
+# (OAuth callbacks with %-encoded query strings), file paths or hashes. Spelled
+# out they become one 200+-token chunk the model cannot voice (pocket-tts warns
+# above 50 tokens and the synthesis runs into the client timeout — seen
+# 10.–14.10.2026 with Volt). A URL is spoken as "Link zu <host>"; paths and
+# long letter/digit/symbol mixes are dropped.
+_URL_RE: Final = re.compile(r"\b(?:https?://|www\.)[^\s<>\"')\]]+", re.I)
+_PATH_RE: Final = re.compile(r"(?<![\w/])~?/(?:[\w.+-]+/){2,}[\w.+-]*")
+_CODEISH_RE: Final = re.compile(r"(?<!\S)(?=[^\s]{20,})(?=[^\s]*[\d%_=&\\])[^\s]+(?!\S)")
+_LINK_WORDS: Final[dict[str, tuple[str, str]]] = {
+    # lang -> (lead-in, spoken dot)
+    "de": ("Link zu", "Punkt"),
+    "en": ("link to", "dot"),
+    "fr": ("lien vers", "point"),
+    "nl": ("link naar", "punt"),
+    "it": ("link a", "punto"),
+    "es": ("enlace a", "punto"),
+    "pt": ("link para", "ponto"),
+}
+
+
+def _speak_url(m: re.Match, lang: str) -> str:
+    url = m.group(0).rstrip(".,;:!?")
+    tail = m.group(0)[len(url):]
+    host = re.sub(r"^(?:https?://)?(?:www\.)?", "", url, flags=re.I)
+    host = re.split(r"[/?#:]", host, maxsplit=1)[0]
+    lead, dot = _LINK_WORDS.get(lang, _LINK_WORDS["en"])
+    if not host:
+        return tail
+    return f" {lead} {f' {dot} '.join(p for p in host.split('.') if p)}{tail} "
+
+
+def _strip_links_and_code(text: str, lang: str) -> str:
+    out = _URL_RE.sub(lambda m: _speak_url(m, lang), text)
+    out = _PATH_RE.sub(" ", out)
+    return _CODEISH_RE.sub(" ", out)
+
+
 # Emoji / pictographs are removed before synthesis — the model otherwise mumbles
 # over them. Deliberately scoped to the emoji blocks: the math/arrow symbols we
 # actually speak (→ U+2192, ← ↑ ↓ ↔, < > = ~) live OUTSIDE these ranges and are
@@ -896,6 +934,10 @@ def normalize(text: str, lang: str = "de") -> str:
     out = text
     for pat, repl in _MD_PATTERNS:
         out = pat.sub(repl, out)
+
+    # 1a: Raw URLs → "Link zu <host>", file paths and token/hash soup dropped.
+    # After the Markdown strip ([text](url) already kept only its text).
+    out = _strip_links_and_code(out, lang)
 
     # 1b: Strip emoji / pictographs (the model mumbles over them). Done after the
     # Markdown strip; the spoken symbols (→ < > = ~) are outside the emoji ranges.

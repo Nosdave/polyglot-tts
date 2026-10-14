@@ -205,3 +205,20 @@ def test_nl_numbers_never_german():
     out = nl("Er zijn 31 lampen aan.")
     assert "eenendertig" in out
     assert "dreißig" not in out
+
+
+def test_url_spoken_as_link_to_host():
+    out = normalize("Hier: https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth. Weiter.", "de")
+    assert out == "Hier: Link zu claude Punkt ai. Weiter."
+
+
+def test_url_localized_and_www():
+    assert normalize("See https://example.org/docs, then retry.", "en") == "See link to example dot org, then retry."
+    assert "Link zu github Punkt com" in normalize("Schau auf www.github.com/Nosdave nach.", "de")
+
+
+def test_paths_and_hashes_dropped_but_long_words_kept():
+    assert normalize("Commit 9539ebf3c2a1d4e5f6a7b8c9d0e1f2a3b4c5d6e7 ist gemergt.", "de") == "Commit ist gemergt."
+    assert "/config" not in normalize("Liegt unter /config/.claude/projects/x/ als JSONL.", "de")
+    assert "Donaudampfschifffahrtsgesellschaftskapitänsmütze" in normalize(
+        "Die Donaudampfschifffahrtsgesellschaftskapitänsmütze ist rot.", "de")
