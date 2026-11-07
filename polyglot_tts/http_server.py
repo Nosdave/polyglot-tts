@@ -54,6 +54,8 @@ from .core import (
     SAMPLE_RATE,
     SAMPLE_WIDTH,
     PolyglotCore,
+    chime_samples,
+    is_chime,
     auto_lid_enabled,
     clamp_eos_threshold,
     clamp_frames_after_eos,
@@ -169,6 +171,8 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,  # noqa: PLR0913
     pocket-tts:tts_model.py:547-548 — `pad_with_spaces_for_short_inputs` is
     explicitly NOT thread-safe).
     """
+    if is_chime(text):
+        return chime_samples(SAMPLE_RATE), (lang_hint or "de")
     bcp47, ckpt = _resolve_checkpoint(core, lang_hint, text)
     model = core.models[ckpt]
     state = core.get_voice_state(voice, ckpt)

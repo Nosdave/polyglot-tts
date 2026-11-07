@@ -4,6 +4,13 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Confirmation tone: a text that is exactly `[[polyglot:chime]]` is answered
+  with a short two-tone chime (~0.25 s) instead of speech, on the Wyoming and
+  the HTTP path. Polyglot Assist sends it when "answer to commands" is set to
+  *tone*.
+
 ## [0.8.2] – 2026-10-14
 
 ### Fixed

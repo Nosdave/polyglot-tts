@@ -25,6 +25,13 @@
 
 ---
 
+
+### Confirmation tone
+
+A synthesis request whose text is exactly `[[polyglot:chime]]` returns a short
+confirmation tone instead of speech. [Polyglot Assist](https://github.com/Nosdave/hass-polyglot-assist)
+uses it for "answer with a tone" on switching commands.
+
 ## Quick start
 
 ### With GPU (NVIDIA)

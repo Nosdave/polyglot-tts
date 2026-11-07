@@ -55,6 +55,8 @@ from .core import (
     LANGUAGE_TO_BCP47,
     SAMPLE_RATE,
     SAMPLE_WIDTH,
+    chime_pcm16,
+    is_chime,
     is_collapsed,
     min_lid_chars,
     resolve_default_language,
@@ -410,8 +412,24 @@ class PocketTTSEventHandler(AsyncEventHandler):
             # Egal wie wir hier ankommen: finalize einmal aufrufen
             await self._finalize_stream()
 
+    async def _emit_chime(self) -> None:
+        """Short confirmation tone instead of speech (CHIME_MARKER)."""
+        audio_bytes = chime_pcm16(SAMPLE_RATE)
+        if self._stream_t_first_chunk is None:
+            self._stream_t_first_chunk = time.perf_counter()
+        chunk_size = CHUNK_SAMPLES * SAMPLE_WIDTH * CHANNELS
+        for i in range(0, len(audio_bytes), chunk_size):
+            await self.write_event(AudioChunk(
+                audio=audio_bytes[i:i + chunk_size],
+                rate=SAMPLE_RATE, width=SAMPLE_WIDTH, channels=CHANNELS,
+            ).event())
+        self._stream_audio_bytes_total += len(audio_bytes)
+
     async def _emit_audio_for_text(self, text: str) -> None:
         """Synthesize TEXT (may contain multiple sentences) and stream frames."""
+        if is_chime(text):
+            await self._emit_chime()
+            return
         # Resolve checkpoint once per stream (lazy on first synth)
         if self._stream_resolved_ckpt is None:
             bcp47, ckpt = self._resolve_checkpoint(self._stream_voice_lang, text)
@@ -459,6 +477,9 @@ class PocketTTSEventHandler(AsyncEventHandler):
         Z. 1027-1032 (per-Wort-Threshold). NICHT thread-safe für pad-Mutation
         — `_get_model_lock` serialisiert pro Modell.
         """
+        if is_chime(text):  # legacy single-shot Synthesize path
+            await self._emit_chime()
+            return
         import torch  # local — keep top imports clean
         loop = asyncio.get_running_loop()
 
