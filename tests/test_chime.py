@@ -1,7 +1,7 @@
 """The chime marker is answered with a short tone instead of speech."""
 import numpy as np
 
-from polyglot_tts.core import CHIME_MARKER, SAMPLE_RATE, chime_pcm16, chime_samples, is_chime
+from polyglot_tts.core import CHIME_MARKER, SAMPLE_RATE, chime_pcm16, chime_samples, is_chime, is_chime_prefix
 
 
 def test_marker_detection():
@@ -20,3 +20,12 @@ def test_chime_audio_shape_and_level():
     assert len(pcm) == len(samples) * 2
     # soft start (no click) and quiet end
     assert abs(samples[0]) < 0.01 and abs(samples[-1]) < 0.05
+
+
+def test_marker_prefix_and_gain():
+    assert is_chime_prefix("[[poly")
+    assert is_chime_prefix(CHIME_MARKER)
+    assert not is_chime_prefix("Licht")
+    assert not is_chime_prefix("[[polyglot:chime]] und")
+    silent = chime_pcm16(SAMPLE_RATE, 0.0)
+    assert not any(silent)

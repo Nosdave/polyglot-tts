@@ -172,7 +172,13 @@ def _synthesize_pcm(core: PolyglotCore, voice: str, text: str,  # noqa: PLR0913
     explicitly NOT thread-safe).
     """
     if is_chime(text):
-        return chime_samples(SAMPLE_RATE), (lang_hint or "de")
+        from .core import clamp_gain  # noqa: PLC0415
+
+        tone = chime_samples(SAMPLE_RATE)
+        eff_gain = clamp_gain(gain) if gain is not None else core.output_gain
+        if eff_gain != 1.0:
+            tone = np.clip(tone * eff_gain, -1.0, 1.0).astype(np.float32)
+        return tone, (lang_hint or "de")
     bcp47, ckpt = _resolve_checkpoint(core, lang_hint, text)
     model = core.models[ckpt]
     state = core.get_voice_state(voice, ckpt)

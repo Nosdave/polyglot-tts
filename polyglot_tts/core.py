@@ -77,10 +77,16 @@ def chime_samples(rate: int = SAMPLE_RATE):
     return np.concatenate([tone(880.0, 0.09), gap, tone(1318.5, 0.13)])
 
 
-def chime_pcm16(rate: int = SAMPLE_RATE) -> bytes:
+def is_chime_prefix(text: str | None) -> bool:
+    """True while ``text`` could still become the chime marker (incl. complete)."""
+    t = (text or "").lstrip()
+    return bool(t) and CHIME_MARKER.startswith(t)
+
+
+def chime_pcm16(rate: int = SAMPLE_RATE, gain: float = 1.0) -> bytes:
     import numpy as np  # noqa: PLC0415
 
-    return (np.clip(chime_samples(rate), -1, 1) * 32767).astype("<i2").tobytes()
+    return (np.clip(chime_samples(rate) * gain, -1, 1) * 32767).astype("<i2").tobytes()
 
 # Frames the vocoder keeps rendering AFTER the LM emits end-of-speech. pocket-tts'
 # default (5) intermittently clips the final word of a sentence — FlowLM fires the

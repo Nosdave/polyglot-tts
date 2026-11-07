@@ -57,6 +57,7 @@ from .core import (
     SAMPLE_WIDTH,
     chime_pcm16,
     is_chime,
+    is_chime_prefix,
     is_collapsed,
     min_lid_chars,
     resolve_default_language,
@@ -363,6 +364,11 @@ class PocketTTSEventHandler(AsyncEventHandler):
         if not text:
             return ""
 
+        # A chime marker split across chunks must not be spoken: hold back a
+        # possible marker prefix until it is complete or ruled out.
+        if not self._stream_stop_received and is_chime_prefix(text):
+            return ""
+
         if self._stream_stop_received:
             # Final-Flush: alles raus
             self._stream_buffer = ""
@@ -414,7 +420,8 @@ class PocketTTSEventHandler(AsyncEventHandler):
 
     async def _emit_chime(self) -> None:
         """Short confirmation tone instead of speech (CHIME_MARKER)."""
-        audio_bytes = chime_pcm16(SAMPLE_RATE)
+        gain = getattr(self._core, "output_gain", 1.0) if self._core else 1.0
+        audio_bytes = chime_pcm16(SAMPLE_RATE, gain)
         if self._stream_t_first_chunk is None:
             self._stream_t_first_chunk = time.perf_counter()
         chunk_size = CHUNK_SAMPLES * SAMPLE_WIDTH * CHANNELS
