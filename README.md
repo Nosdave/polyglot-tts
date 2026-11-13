@@ -49,7 +49,7 @@ docker run -d --gpus all \
 docker run -d \
   -p 10200:10200 -p 10201:10201 \
   -v $(pwd)/voices-extra:/app/voices-extra \
-  -e POCKET_TTS_LANGUAGES=english_2026-09 \
+  -e POCKET_TTS_LANGUAGES=english_2026-10 \
   ghcr.io/nosdave/polyglot-tts:latest
 ```
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,7 @@ LANGUAGE_TO_BCP47: dict[str, str] = {
 BCP47_TO_CHECKPOINT: dict[str, str] = {
     "de": "german_24l",
     "fr": "french_24l",
-    "en": "english_2026-09",
+    "en": "english_2026-10",
     "it": "italian_24l",
     "es": "spanish_24l",
     "pt": "portuguese_24l",
@@ -530,16 +531,16 @@ def available_checkpoints() -> list[dict]:
 
     names = sorted(set(names))
     if not names:
-        # Static fallback (pocket-tts 3.3.0).
+        # Static fallback (pocket-tts 4.0.1).
         names = [
-            "english_2026-09", "english_2026-09_24l", "english_2026-04",
+            "english_2026-10", "english_2026-09_2", "english_2026-09", "english_2026-09_24l", "english_2026-04",
             "english_2026-04_24l", "english_2026-01", "english",
             "french", "french_24l", "german", "german_24l",
             "italian", "italian_24l", "spanish", "spanish_24l",
             "portuguese", "portuguese_24l", "dutch", "dutch_24l",
         ]
 
-    # The newest dated English checkpoint ("english_2026-09") is "latest".
+    # The newest dated full-size English checkpoint (e.g. "english_2026-10") is "latest".
     dated = sorted(n.split("_")[1] for n in names
                    if n.startswith("english_") and n.split("_")[1][:2] == "20")
     newest_en = dated[-1] if dated else None
@@ -549,8 +550,14 @@ def available_checkpoints() -> list[dict]:
         lang_key = n.split("_")[0]
         bcp47 = LANGUAGE_TO_BCP47.get(lang_key, lang_key[:2])
         # Heuristic quality label: *_24l = high (24-layer), else fast/default.
+        small = re.match(r"^english_(\d+m)(_refl)?_", n)
         if n.endswith("_24l"):
             quality = "high (24-layer)"
+        elif small:
+            # pocket-tts 4.0: small English models (18m/7m/2m), fast on CPU, lower quality
+            quality = f"small ({small.group(1)}{', reflective' if small.group(2) else ''})"
+        elif n.startswith("english_drifting"):
+            quality = "experimental"
         elif n.startswith("english"):
             quality = "latest" if newest_en and newest_en in n else "older"
         else:

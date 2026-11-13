@@ -86,7 +86,7 @@ Full list in `docs/CONFIGURATION.md`. The ones you'll actually touch:
 
 | Var | Default | Notes |
 |---|---|---|
-| `POCKET_TTS_LANGUAGES` | `english_2026-09,german_24l,french_24l` | comma-sep checkpoints; each adds ~1.3 GB RAM. Singular `POCKET_TTS_LANGUAGE` is a back-compat fallback. |
+| `POCKET_TTS_LANGUAGES` | `english_2026-10,german_24l,french_24l` | comma-sep checkpoints; each adds ~1.3 GB RAM. Singular `POCKET_TTS_LANGUAGE` is a back-compat fallback. |
 | `POCKET_TTS_VOICE` | `eve` | default voice |
 | `POCKET_TTS_DEVICE` | `auto` | auto/cpu/cuda |
 | `POCKET_TTS_VOICES_EXTRA_DIR` | `/app/voices-extra` | watched dir for voice cloning |

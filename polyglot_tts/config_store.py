@@ -61,9 +61,9 @@ FIELD_META: dict[str, dict] = {
     "POCKET_TTS_LANGUAGES": {
         "type": "text",
         "help": "Comma-separated language checkpoints to load. Each adds ~1.3 GB RAM.",
-        "placeholder": "english_2026-09,german_24l,french_24l",
+        "placeholder": "english_2026-10,german_24l,french_24l",
         "options": [
-            "english_2026-09", "german_24l", "french_24l",
+            "english_2026-10", "german_24l", "french_24l",
             "italian_24l", "spanish_24l", "portuguese_24l", "dutch_24l",
         ],
     },
