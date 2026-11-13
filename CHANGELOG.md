@@ -4,12 +4,29 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.8.3] – 2026-11-14
+
 ### Added
 
 - Confirmation tone: a text that is exactly `[[polyglot:chime]]` is answered
   with a short two-tone chime (~0.25 s) instead of speech, on the Wyoming and
   the HTTP path. Polyglot Assist sends it when "answer to commands" is set to
   *tone*.
+- `POCKET_TTS_MIN_FOLLOW_CHARS` (default 40): follow-up chunks without a
+  sentence/clause boundary are cut at a space only from this length on, so a
+  fast drain does not synthesize one word at a time.
+
+### Fixed
+
+- Wyoming streaming: text is no longer cut in the middle of a word. LLM answers
+  arrive as token fragments; the first flush at `POCKET_TTS_MIN_SYNTH_CHARS`
+  (and every follow-up flush) used to take the buffer as-is, so a word like
+  "Dja|ner" was voiced in two generator runs with an audible pause inside it.
+  Chunks now end at the last sentence boundary, else at a clause boundary
+  (`, ; : – —`, only once the chunk is long enough), else at a space; the rest
+  waits for more text. A period after a number or a short word ("am 27.",
+  "Dr.", "23.5") is not treated as a sentence end.
+
 
 ## [0.8.2] – 2026-10-14
 
