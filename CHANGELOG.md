@@ -4,6 +4,37 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.9.0] – 2026-11-14
+
+### Changed
+
+- **pocket-tts 4.0.1** (was 3.3). Upstream: retrained French, Italian, Dutch,
+  Spanish and Portuguese models (the `french_24l` weights changed), a 5 ms
+  fade-in at chunk starts (no onset click), voice prompts end on a short pause,
+  dashes and curly apostrophes are rewritten to characters the models know.
+  `german_24l`, `dutch_24l` and `english_2026-09` keep their weights.
+- **Default English checkpoint is now `english_2026-10`** (upstream default;
+  reads sentence-final numbers and years). `english_2026-09` stays available.
+- **wyoming 1.11.0**: `voice` in `synthesize`/`synthesize-start` now carries
+  name *and* language, so the language hint from the client reaches the
+  checkpoint selection even when a voice name is set.
+- Dependencies: fastapi ≥ 0.162, lingua-language-detector ≥ 2.1.1;
+  dev: pytest ≥ 9.2, httpx ≥ 0.28.1.
+
+### Added
+
+- The checkpoint list labels the new small English models
+  (`english_18m/7m/2m_2026-10`, also `*_refl_*`) as "small" and
+  `english_drifting_26-09` as "experimental" instead of "latest".
+
+### Verified
+
+- A/B against 0.8.3 on a GB10 (TTS → Parakeet STT, two cloned voices,
+  de/en/fr, 11 sentences × 2): quality on par (French better, German and
+  English within run-to-run noise); time to first audio unchanged.
+  Wyoming streaming and the chime marker unchanged.
+
+
 ## [0.8.3] – 2026-11-14
 
 ### Added

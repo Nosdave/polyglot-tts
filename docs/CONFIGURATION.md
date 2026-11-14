@@ -19,11 +19,12 @@ At least one of the Wyoming or HTTP ports must be non-empty.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `POCKET_TTS_LANGUAGES` | `english_2026-09,german_24l,french_24l` | Comma-separated list of Pocket-TTS checkpoint names to load at startup. |
+| `POCKET_TTS_LANGUAGES` | `english_2026-10,german_24l,french_24l` | Comma-separated list of Pocket-TTS checkpoint names to load at startup. |
 
-Available checkpoints today (pocket-tts 3.3):
+Available checkpoints today (pocket-tts 4.0):
 
-- `english_2026-09` (default English; robustness fine-tune), `english_2026-09_24l`, `english_2026-04`
+- `english_2026-10` (default English; reads sentence-final numbers and years), `english_2026-09_2`, `english_2026-09`, `english_2026-09_24l`, `english_2026-04`
+- small English models, fast on CPU, lower quality: `english_18m_2026-10`, `english_7m_2026-10`, `english_2m_2026-10` (experimental), each also as `*_refl_*`
 - `german_24l`
 - `french_24l`, `french`
 - `italian_24l`
