@@ -87,6 +87,43 @@ CHUNK_SAMPLES = 1024
 _GLOBAL_MODEL_LOCKS: dict[int, "asyncio.Lock"] = {}
 
 
+def _mark_cut(text: str, min_clause: int = 0) -> int:
+    """Index nach der letzten Satz- bzw. Teilsatzgrenze in `text` (0 = keine).
+
+    Bevorzugt `.!?…`, sonst `,;:–—`, jeweils nur wenn ein Leerzeichen folgt.
+    Ein Punkt nach einer Zahl („am 27. Oktober“) oder nach einem kurzen Wort
+    („Dr.“, „z. B.“, „ca.“) gilt nicht als Satzgrenze. Eine Teilsatzgrenze
+    zählt erst ab `min_clause` Zeichen (sonst Mini-Synths wie „Dienstag,“).
+    """
+    for marks, min_len in ((".!?…", 1), (",;:–—", min_clause)):
+        best = -1
+        for m in marks:
+            i = text.rfind(m + " ")
+            while i > 0 and m == "." and _dot_is_not_sentence_end(text, i):
+                i = text.rfind(m + " ", 0, i)
+            best = max(best, i)
+        if best > 0 and best + 1 >= min_len:
+            return best + 1
+    return 0
+
+
+def _dot_is_not_sentence_end(text: str, i: int) -> bool:
+    word = text[:i].rsplit(None, 1)[-1] if text[:i].strip() else ""
+    word = word.rsplit(".", 1)[-1] if "." in word else word  # "z.B" → "B"
+    return word.isdigit() or (word.isalpha() and len(word) <= 3)
+
+
+def _space_cut(text: str) -> int:
+    """Index des letzten Leerzeichens (0 = nur ein angefangenes Wort).
+
+    Nicht direkt hinter „27.“ / „Dr.“ schneiden — das gehört zum Folgewort.
+    """
+    i = text.rfind(" ")
+    while i > 0 and text[i - 1] == "." and _dot_is_not_sentence_end(text, i - 1):
+        i = text.rfind(" ", 0, i)
+    return max(i, 0)
+
+
 def _get_model_lock(model) -> "asyncio.Lock":
     """Get-or-create per-model asyncio.Lock (lazy-init, module-global)."""
     key = id(model)
@@ -246,6 +283,11 @@ class PocketTTSEventHandler(AsyncEventHandler):
         self._min_synth_chars: int = int(_os_local.environ.get(
             "POCKET_TTS_MIN_SYNTH_CHARS", "30",
         ))
+        # Folge-Chunks ohne Satz-/Teilsatzgrenze erst ab dieser Länge an einem
+        # Leerzeichen schneiden (gegen Ein-Wort-Synths bei schnellem Drain).
+        self._min_follow_chars: int = int(_os_local.environ.get(
+            "POCKET_TTS_MIN_FOLLOW_CHARS", "40",
+        ))
         self._stream_stop_received: bool = False
         self._drain_task: Any | None = None        # asyncio.Task — der Drain-Loop
         self._wake: Any | None = None              # asyncio.Event — erweckt Drain
@@ -356,11 +398,15 @@ class PocketTTSEventHandler(AsyncEventHandler):
             flush nur wenn Buffer auf `.!?…` endet ODER ≥ MIN_SYNTH_CHARS
             (Default 30) → niedrige TTFA bei kurzen Filler-Antworten,
             sinnvolle Größe bei langen
+        - Nie mitten im Wort: geschnitten wird an der letzten Satz-/Teilsatz-
+          grenze (`_mark_cut`), an einem Leerzeichen erst ab MIN_SYNTH_CHARS
+          (erster Chunk) bzw. MIN_FOLLOW_CHARS (Folge-Chunks); der Rest wartet.
         - Folge-Synths: alles aus Buffer nehmen, was sich während des
           vorherigen Generator-Laufs angesammelt hat (kein zweiter Mindest-
           Threshold → so wenige Generator-Restarts wie möglich)
         """
-        text = self._stream_buffer.strip()
+        raw = self._stream_buffer.lstrip()
+        text = raw.rstrip()
         if not text:
             return ""
 
@@ -374,16 +420,35 @@ class PocketTTSEventHandler(AsyncEventHandler):
             self._stream_buffer = ""
             return text
 
-        if self._stream_sentences_emitted == 0:
-            # Erster Flush: warte auf Terminator ODER MIN_SYNTH_CHARS
-            if text[-1] in ".!?…" or len(text) >= self._min_synth_chars:
-                self._stream_buffer = ""
-                return text
+        # Endet der Buffer auf einem Satzzeichen: alles nehmen. Ein Punkt
+        # nach Zahl oder Kurzwort („am 27.“, „Dr.“, „23.“ von „23.5“) kommt
+        # als eigenes Token und ist (noch) kein Satzende → weiter unten.
+        if text[-1] in "!?…" or (
+            text[-1] == "." and not _dot_is_not_sentence_end(text, len(text) - 1)
+        ):
+            self._stream_buffer = ""
+            return text
+
+        first = self._stream_sentences_emitted == 0
+        if first and len(text) < self._min_synth_chars:
             return ""  # noch nicht genug
 
-        # Folge-Flush: alles was sich während prev. Generator angesammelt hat
-        self._stream_buffer = ""
-        return text
+        # Nie mitten im Wort schneiden: das LLM streamt Token-Fragmente
+        # ("Dja" + "ner"), ein Schnitt dort wird als hörbare Pause mitten im
+        # Wort gesprochen. Geschnitten wird an der letzten Satz-/Teilsatz-
+        # grenze; an einem Leerzeichen nur, wenn schon genug Text da ist
+        # (sonst wird jedes Wort ein eigener Generator-Lauf). Der Rest bleibt
+        # samt Leerzeichen im Buffer, damit die Folge-Tokens nicht ankleben.
+        min_space = self._min_synth_chars if first else self._min_follow_chars
+        cut = _mark_cut(raw, min_clause=min_space // 2)
+        if cut <= 0:
+            if len(text) < min_space:
+                return ""
+            cut = _space_cut(raw)
+            if cut <= 0:
+                return ""  # ein einziges langes Wort — auf mehr Text warten
+        self._stream_buffer = raw[cut:]
+        return raw[:cut].strip()
 
     async def _drain_loop(self) -> None:
         """Background-Task pro Stream: zieht Chunks aus Buffer + rendert.
