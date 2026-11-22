@@ -19,15 +19,23 @@ Tailscale, equivalent).
 - **Synthesis and read-only routes are unauthenticated**: anyone who can
   reach the ports can synthesize audio (Wyoming, `POST /v1/audio/speech`)
   and list voices, languages, status and settings.
-- **Everything that changes state requires the management token** (since
+- **Everything that changes state requires the management password** (since
   0.9.1): voice upload/delete, settings, pronunciation dictionary, restart.
-  The token is `POCKET_TTS_UI_TOKEN`, or a random one generated on first
-  start and stored as `ui_token` (mode 0600) in the config directory. See
+  The password is `POCKET_TTS_UI_TOKEN`, or the one set in the web UI, which
+  is stored as a salted scrypt hash (`ui_password.json`, mode 0600) in the
+  config directory. Until a password exists these routes are refused.
+- **First-run setup window:** while no password exists, the web UI can set
+  one during the first 10 minutes after a server start
+  (`POCKET_TTS_UI_SETUP_MINUTES`). In that window the first client to reach
+  the UI sets the password. Set `POCKET_TTS_UI_TOKEN` (or the window to `0`)
+  where that is not acceptable. See
   [docs/WEB_UI.md](docs/WEB_UI.md#authentication).
+- Over plain `http://` the password is sent unencrypted with every
+  management call, like everything else on this port.
 
 If you expose Polyglot TTS to a less-trusted network, put it behind a
-reverse proxy with auth (e.g. Caddy + basic-auth, or your existing
-ingress) — the token does not limit who may synthesize.
+reverse proxy with TLS and auth (e.g. Caddy + basic-auth, or your existing
+ingress) — the password does not limit who may synthesize.
 
 ## What Polyglot does not do
 
@@ -52,8 +60,13 @@ ingress) — the token does not limit who may synthesize.
 ## Hard limits in place (since 0.9.1)
 
 - Requests with a method other than `GET`/`HEAD`/`OPTIONS` are rejected
-  without the management token before their body is read; only
-  `POST /v1/audio/speech` and `POST /v1/text/normalize` are exempt.
+  without the management password before their body is read; only
+  `POST /v1/audio/speech`, `POST /v1/text/normalize` and the first-run
+  `POST /api/ui/setup` (no password yet + setup window + JSON only) are
+  exempt.
+- Failed password attempts are limited to 10 per minute, process-wide; while
+  the limit is hit, credentials are not evaluated (HTTP 429), except the
+  valid one from an address that is already logged in.
 - Uploaded voice files must carry a supported audio extension; at most 100
   voices can be created through the API.
 - `POCKET_TTS_LANGUAGES` and `POCKET_TTS_VOICE` only accept known names

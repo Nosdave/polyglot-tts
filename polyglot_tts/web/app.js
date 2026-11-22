@@ -8,14 +8,18 @@ function esc(v) {
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// ── login (management token) ──────────────────────────────────────────────
-// Reading and listening work without a token. Changing anything (voices,
-// settings, dictionary, restart) needs the management token: it is kept in
-// localStorage and sent as "Authorization: Bearer <token>".
-const TOKEN_KEY = "polyglot_ui_token";
+// ── password (login, first-run setup, change) ─────────────────────────────
+// Reading and listening work without logging in. Changing anything (voices,
+// settings, dictionary, restart) needs the management password: after login
+// it is kept in localStorage and sent as "Authorization: Bearer <password>".
+// While the server has no password yet it offers "Set password" instead of
+// "Login" for a few minutes after its start (see docs/WEB_UI.md).
+const TOKEN_KEY = "polyglot_ui_token";   // key kept so existing logins survive
 let TOKEN = "";
 let LOGGED_IN = false;
-let TOKEN_SOURCE = "";
+let AUTH_MODE = "";        // from /api/ui/status: setup | password | env | memory | closed
+let SETUP_LEFT = 0;        // seconds the setup window stays open
+let MIN_PW = 10;
 
 function storedToken() {
   try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
@@ -24,7 +28,7 @@ function storeToken(tok) {
   try {
     if (tok) localStorage.setItem(TOKEN_KEY, tok);
     else localStorage.removeItem(TOKEN_KEY);
-  } catch (e) { /* private mode: token lives for this page only */ }
+  } catch (e) { /* private mode: the login lives for this page only */ }
 }
 TOKEN = storedToken();
 
@@ -53,34 +57,77 @@ async function api(path, opts) {
   if (res.status === 401) {
     const hadToken = !!TOKEN;
     setLoggedOut();
-    showLogin(hadToken ? "The stored token is no longer valid." : "");
+    showAuth(hadToken ? "The stored password is no longer valid." : "");
     throw new Error("unauthorized");
   }
   return res;
 }
 
-// true / false = the server accepted / rejected the token; null = no answer.
-async function checkToken(tok) {
+async function errorDetail(res) {
+  try { const j = await res.json(); if (j && typeof j.detail === "string") return j.detail; }
+  catch (e) { /* no JSON body */ }
+  return "Error " + res.status;
+}
+
+// true / false = the server accepted / rejected the password; "limited" =
+// too many failed attempts; null = no answer.
+async function checkPassword(pw) {
   try {
-    const r = await fetch("/api/ui/session", { headers: { "Authorization": "Bearer " + tok } });
+    const r = await fetch("/api/ui/session", { headers: { "Authorization": "Bearer " + pw } });
     if (r.status === 200) return true;
     if (r.status === 401) return false;
+    if (r.status === 429) return "limited";
     return null;
   } catch (e) { return null; }
 }
 
-function renderAuth() {
-  document.getElementById("auth-state").textContent =
-    LOGGED_IN ? "Logged in" : "Read-only";
-  document.getElementById("login-btn").hidden = LOGGED_IN;
-  document.getElementById("logout-btn").hidden = !LOGGED_IN;
-  document.body.classList.toggle("logged-in", LOGGED_IN);
+// The password travels in an HTTP header, so it is limited to plain ASCII.
+function passwordProblem(pw, repeat) {
+  if (pw.length < MIN_PW) return `At least ${MIN_PW} characters.`;
+  if (!/^[\x20-\x7E]+$/.test(pw) || pw !== pw.trim()) {
+    return "Letters, digits and common symbols only (no umlauts, accents or emoji), " +
+      "no space at the start or end.";
+  }
+  if (pw !== repeat) return "The two passwords differ.";
+  return "";
 }
 
-function setLoggedIn(tok) {
-  TOKEN = tok;
+function noPasswordYet() { return AUTH_MODE === "setup" || AUTH_MODE === "closed"; }
+
+function renderAuth() {
+  const el = (id) => document.getElementById(id);
+  el("auth-state").textContent = LOGGED_IN ? "Logged in"
+    : (noPasswordYet() ? "No password set" : "Read-only");
+  el("login-btn").textContent = noPasswordYet() ? "Set password" : "Login";
+  el("login-btn").hidden = LOGGED_IN;
+  el("logout-btn").hidden = !LOGGED_IN;
+  document.body.classList.toggle("logged-in", LOGGED_IN);
+  // settings tab: password card
+  el("settings-login-btn").textContent = el("login-btn").textContent;
+  el("settings-login-btn").hidden = LOGGED_IN;
+  el("settings-logout-btn").hidden = !LOGGED_IN;
+  el("change-form").hidden = !(LOGGED_IN && AUTH_MODE === "password");
+  let note = "Changing voices or settings needs the management password.";
+  if (AUTH_MODE === "env") {
+    note = "The password is set on the server through POCKET_TTS_UI_TOKEN; change it there.";
+  } else if (AUTH_MODE === "memory") {
+    note = "The server cannot store a password (config directory not writable); " +
+      "it uses a one-time password from its log.";
+  } else if (AUTH_MODE === "password") {
+    note = LOGGED_IN ? "Change the management password here."
+      : "Log in to change the management password.";
+    note += " Forgotten? Delete ui_password.json in the server's config directory " +
+      "and restart the server, then set a new one here.";
+  } else if (noPasswordYet()) {
+    note = "No management password has been set yet.";
+  }
+  el("password-note").textContent = note;
+}
+
+function setLoggedIn(pw) {
+  TOKEN = pw;
   LOGGED_IN = true;
-  storeToken(tok);
+  storeToken(pw);
   renderAuth();
 }
 
@@ -91,64 +138,154 @@ function setLoggedOut() {
   renderAuth();
 }
 
-function tokenHint() {
-  if (TOKEN_SOURCE === "env") {
-    return "The token is the value of POCKET_TTS_UI_TOKEN set for this server.";
+function loginHint() {
+  if (AUTH_MODE === "env") {
+    return "The password is the value of POCKET_TTS_UI_TOKEN set for this server.";
   }
-  if (TOKEN_SOURCE === "memory") {
-    return "The server could not store a token, so it changes on every start: " +
-      "see the server log, or set POCKET_TTS_UI_TOKEN.";
+  if (AUTH_MODE === "memory") {
+    return "The server could not store a password; it wrote a one-time password " +
+      "to its log at start.";
   }
-  return "The token is in the file ui_token in the server's config directory " +
-    "(default /app/config/ui_token). The server log names the exact path.";
+  return "Forgotten? Delete ui_password.json in the server's config directory and " +
+    "restart the server to set a new one.";
 }
 
-function showLogin(message) {
-  document.getElementById("token-hint").textContent = tokenHint();
-  document.getElementById("token-error").textContent = message || "";
-  document.getElementById("token-gate").hidden = false;
-  document.getElementById("token-input").focus();
+// Show the form that fits the server state: set a password, log in, or the
+// notice that setup is not possible right now.
+function showAuth(message) {
+  const el = (id) => document.getElementById(id);
+  const which = AUTH_MODE === "setup" ? "setup-form"
+    : (AUTH_MODE === "closed" ? "setup-closed" : "login-form");
+  ["login-form", "setup-form", "setup-closed"].forEach((id) => { el(id).hidden = id !== which; });
+  if (which === "setup-form") {
+    const mins = Math.max(1, Math.ceil(SETUP_LEFT / 60));
+    el("setup-hint").textContent = `Possible for about ${mins} more minute(s) after ` +
+      "the server start. Whoever sets the password first controls the management " +
+      "functions — do it now.";
+    el("setup-error").textContent = message || "";
+  } else if (which === "login-form") {
+    el("login-hint").textContent = loginHint();
+    el("login-error").textContent = message || "";
+  }
+  const wasHidden = el("auth-panel").hidden;
+  el("auth-panel").hidden = false;
+  if (wasHidden) {
+    const first = el(which).querySelector('input[type="password"]');
+    if (first) first.focus();
+  }
 }
 
-function hideLogin() {
-  document.getElementById("token-gate").hidden = true;
-  document.getElementById("token-input").value = "";
-  document.getElementById("token-error").textContent = "";
+function hideAuth() {
+  document.getElementById("auth-panel").hidden = true;
+  ["login-password", "setup-password", "setup-repeat"].forEach((id) => {
+    const input = document.getElementById(id);
+    input.value = "";
+    input.type = "password";
+  });
+  document.querySelectorAll("#auth-panel [data-toggle]").forEach((b) => {
+    b.setAttribute("aria-pressed", "false");
+    b.textContent = "Show";
+  });
+  ["login-error", "setup-error"].forEach((id) => { document.getElementById(id).textContent = ""; });
 }
 
-// Gate for every management action: opens the login when not logged in.
+// Gate for every management action: opens login / setup when not logged in.
 function requireLogin() {
   if (LOGGED_IN) return true;
-  showLogin("Log in to change voices or settings.");
+  showAuth(AUTH_MODE === "setup" ? "Set a password first."
+    : "Log in to change voices or settings.");
   return false;
 }
 
 async function doLogin() {
-  const tok = document.getElementById("token-input").value.trim();
-  const err = document.getElementById("token-error");
-  if (!tok) { err.textContent = "Enter the token."; return; }
+  const pw = document.getElementById("login-password").value.trim();
+  const err = document.getElementById("login-error");
+  if (!pw) { err.textContent = "Enter the password."; return; }
   err.textContent = "Checking…";
-  const ok = await checkToken(tok);
-  if (ok === true) { setLoggedIn(tok); hideLogin(); }
-  else if (ok === false) err.textContent = "Invalid token.";
+  const ok = await checkPassword(pw);
+  if (ok === true) { setLoggedIn(pw); hideAuth(); }
+  else if (ok === false) err.textContent = "Wrong password.";
+  else if (ok === "limited") err.textContent = "Too many failed attempts — wait a minute.";
   else err.textContent = "Server not reachable — try again.";
 }
 
-document.getElementById("token-save").onclick = doLogin;
-document.getElementById("token-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") doLogin();
-});
-document.getElementById("token-cancel").onclick = hideLogin;
-document.getElementById("login-btn").onclick = () => showLogin("");
-document.getElementById("logout-btn").onclick = () => { setLoggedOut(); hideLogin(); };
+async function doSetup() {
+  const pw = document.getElementById("setup-password").value;
+  const err = document.getElementById("setup-error");
+  const problem = passwordProblem(pw, document.getElementById("setup-repeat").value);
+  if (problem) { err.textContent = problem; return; }
+  err.textContent = "Saving…";
+  let r;
+  try {
+    r = await fetch("/api/ui/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw }),
+    });
+  } catch (e) { err.textContent = "Server not reachable — try again."; return; }
+  if (r.ok) {
+    AUTH_MODE = "password";
+    setLoggedIn(pw);
+    hideAuth();
+    return;
+  }
+  err.textContent = await errorDetail(r);
+  if (r.status === 403) refreshStatus();   // someone else was first, or the window is over
+}
 
-// On load: a stored token is only kept if the server still accepts it.
+async function doChangePassword() {
+  const el = (id) => document.getElementById(id);
+  const st = el("change-status");
+  const current = el("change-current").value.trim();
+  const pw = el("change-new").value;
+  if (!requireLogin()) return;
+  if (!current) { st.textContent = "Enter the current password."; return; }
+  const problem = passwordProblem(pw, el("change-repeat").value);
+  if (problem) { st.textContent = problem; return; }
+  st.textContent = "Saving…";
+  let r;
+  try {
+    r = await api("/api/ui/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: current, new_password: pw }),
+    });
+  } catch (e) { st.textContent = "Not changed."; return; }
+  if (!r.ok) { st.textContent = await errorDetail(r); return; }
+  setLoggedIn(pw);                          // keep this browser logged in
+  ["change-current", "change-new", "change-repeat"].forEach((id) => { el(id).value = ""; });
+  st.textContent = "Password changed. Other devices have to log in again.";
+}
+
+[["login-form", doLogin], ["setup-form", doSetup], ["change-form", doChangePassword]]
+  .forEach(([id, handler]) => {
+    document.getElementById(id).addEventListener("submit", (e) => { e.preventDefault(); handler(); });
+  });
+document.querySelectorAll("[data-auth-cancel]").forEach((b) => { b.onclick = hideAuth; });
+document.getElementById("login-btn").onclick = () => showAuth("");
+document.getElementById("settings-login-btn").onclick = () => showAuth("");
+document.getElementById("logout-btn").onclick = () => { setLoggedOut(); hideAuth(); };
+document.getElementById("settings-logout-btn").onclick = () => { setLoggedOut(); hideAuth(); };
+
+// show / hide what was typed (one button can switch several fields)
+document.querySelectorAll("[data-toggle]").forEach((btn) => {
+  btn.onclick = () => {
+    const show = btn.getAttribute("aria-pressed") !== "true";
+    btn.dataset.toggle.split(",").forEach((id) => {
+      document.getElementById(id).type = show ? "text" : "password";
+    });
+    btn.setAttribute("aria-pressed", show ? "true" : "false");
+    btn.textContent = show ? "Hide" : "Show";
+  };
+});
+
+// On load: a stored password is only kept if the server still accepts it.
 async function restoreLogin() {
   if (!TOKEN) { renderAuth(); return; }
-  const ok = await checkToken(TOKEN);
+  const ok = await checkPassword(TOKEN);
   if (ok === true) setLoggedIn(TOKEN);
   else if (ok === false) setLoggedOut();
-  else renderAuth();          // server not reachable: keep the token, stay read-only
+  else renderAuth();          // no clear answer: keep it, stay read-only for now
 }
 
 // ── tabs ──────────────────────────────────────────────────────────────────
@@ -168,7 +305,15 @@ async function refreshStatus() {
     if (!r.ok) return;
     const s = await r.json();
     document.getElementById("version").textContent = "v" + s.version;
-    TOKEN_SOURCE = s.token_source || "";
+    const modeBefore = AUTH_MODE;
+    AUTH_MODE = s.auth_mode || "";
+    SETUP_LEFT = s.setup_seconds_left || 0;
+    MIN_PW = s.min_password_length || MIN_PW;
+    if (AUTH_MODE !== modeBefore) {
+      renderAuth();
+      // keep an open panel in line with the server (e.g. setup window over)
+      if (!LOGGED_IN && !document.getElementById("auth-panel").hidden) showAuth("");
+    }
     const langs = s.languages.map((l) => l.bcp47).join(", ") || "—";
     document.getElementById("status-box").innerHTML = `
       <div class="kv"><span>Device</span><span>${esc(s.device)}</span></div>
@@ -176,7 +321,7 @@ async function refreshStatus() {
       <div class="kv"><span>Voices</span><span>${esc(s.voice_count)}</span></div>
       <div class="kv"><span>Default voice</span><span>${esc(s.default_voice)}</span></div>
       <div class="kv"><span>Uptime</span><span>${fmtUptime(s.uptime_s)}</span></div>
-      <div class="kv"><span>Management</span><span>token required</span></div>`;
+      <div class="kv"><span>Management</span><span>${noPasswordYet() ? "no password set yet" : "password required"}</span></div>`;
     const t = s.last_synth || {};
     const rtf = t.audio_ms && t.synth_ms ? (t.audio_ms / t.synth_ms).toFixed(2) : "—";
     document.getElementById("timing-box").innerHTML = t.ts
@@ -280,9 +425,11 @@ async function refreshVoices() {
     b.onclick = async () => {
       if (!requireLogin()) return;
       if (!confirm(`Delete voice "${b.dataset.del}"?`)) return;
+      let r;
       try {
-        await api("/v1/audio/voices/" + encodeURIComponent(b.dataset.del), { method: "DELETE" });
+        r = await api("/v1/audio/voices/" + encodeURIComponent(b.dataset.del), { method: "DELETE" });
       } catch (e) { return; }
+      if (!r.ok) alert("Not deleted: " + (await errorDetail(r)));
       setTimeout(refreshVoices, 500);
     };
   });
@@ -420,11 +567,16 @@ document.getElementById("generate-btn").onclick = async () => {
   if (!name || !keys.length) return;
   if (!requireLogin()) return;
   const status = document.getElementById("upload-status");
-  // Check the token before sending audio: a rejected upload would otherwise
-  // be cut off mid-transfer instead of showing the login.
-  if ((await checkToken(TOKEN)) === false) {
+  // Check the password before sending audio: a rejected upload would
+  // otherwise be cut off mid-transfer instead of showing the login.
+  const valid = await checkPassword(TOKEN);
+  if (valid === false) {
     setLoggedOut();
-    showLogin("The stored token is no longer valid.");
+    showAuth("The stored password is no longer valid.");
+    return;
+  }
+  if (valid === "limited") {
+    status.textContent = "Too many failed attempts — wait a minute and try again.";
     return;
   }
   document.getElementById("generate-btn").disabled = true;
@@ -757,6 +909,8 @@ async function init() {
   try {
     await refreshStatus();
     await restoreLogin();
+    // first run: offer "Set password" right away
+    if (!LOGGED_IN && AUTH_MODE === "setup") showAuth("");
     await refreshVoices();
     await refreshSettings();
     setInterval(refreshStatus, 5000);

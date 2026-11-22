@@ -26,81 +26,117 @@ Three tabs:
 
 Viewing and listening are open: the page itself, the dashboard, the voice
 list, the settings view and the test player need no login. **Changing
-anything needs the management token** — adding or deleting a voice, saving
+anything needs the management password** — adding or deleting a voice, saving
 settings or the pronunciation dictionary, storing a HuggingFace token,
 restarting.
 
-### Where the token comes from
+### First start: set a password
 
-- **Generated (default).** On first start the server creates a random token
-  and stores it as `ui_token` next to the settings file (default
-  `/app/config/ui_token`, readable only by the container user). The log
-  shows the path, not the value:
+A new server has no password, and until it has one the management functions
+are closed (not open). To set it:
 
-  ```
-  Management token: stored in /app/config/ui_token (mode 0600). …
-  ```
+1. Start the server.
+2. Within **10 minutes**, open `http://<host>:10201/ui` — on a phone is fine.
+   The page shows **Set password**.
+3. Enter a password twice (at least 10 characters; letters, digits and
+   common symbols — no umlauts or emoji) and confirm. You are logged in, and
+   your browser or password manager offers to save it (user name `admin`).
 
-  Read it with:
+After the 10 minutes the form is gone and the server answers 403 to setup
+attempts. **Restart the server** to get another 10 minutes.
 
-  ```bash
-  docker exec polyglot-tts cat /app/config/ui_token
-  ```
+> **Trade-off:** during the setup window, the first client that reaches the
+> UI sets the password. On a home network right after a deliberate restart
+> this is usually fine. Where it is not, set the password through the
+> environment (below) — then nothing can be set from a browser at all — or
+> disable the window with `POCKET_TTS_UI_SETUP_MINUTES=0`.
 
-  Mount `/app/config` (see below) so the token survives re-creating the
-  container. To get a new token, delete the file and restart.
+The password is stored as a salted hash (scrypt) in `ui_password.json`
+next to the settings file (default `/app/config/`), readable only by the
+container user. Mount `/app/config` (see below) so it survives re-creating
+the container; without the mount every new container asks for a password
+again.
 
-- **Your own.** Set `POCKET_TTS_UI_TOKEN` — it takes precedence over the
-  file. Use a long random value, e.g. `openssl rand -hex 32`.
+### Password from the environment
 
-  ```
-  POCKET_TTS_UI_TOKEN=<long random value>
-  ```
+```
+POCKET_TTS_UI_TOKEN=<your password>
+```
 
-- If the config directory is not writable and no token is set, the server
-  generates a token for that run only and prints it once in the log.
+If this variable is set, its value is the password. It takes precedence over
+a password set in the browser, and the browser can then neither set nor
+change the password.
 
-### Logging in
+### Logging in, logging out, changing the password
 
-Click **Login** in the header (the dialog also opens by itself when you try
-a management action), paste the token, confirm. The browser remembers it
-(localStorage) until you click **Logout**. If the token changes on the
-server, the page drops the stored one and asks again.
+- **Login** (header, or automatically when you try a management action):
+  enter the password. The browser remembers it (localStorage) until you click
+  **Logout**; if the password changes on the server, the page asks again.
+- **Change password:** Settings → *Password*. Asks for the current and the
+  new password. Other devices have to log in again afterwards.
+- The forms work with password managers on phone and desktop (user name
+  `admin`).
+- After 10 failed attempts within a minute, further attempts are refused for
+  a moment (HTTP 429). A browser that is already logged in keeps working.
 
-### Using the token from scripts
+### Forgotten password
+
+Delete the hash file and restart — the setup window opens again:
+
+```bash
+docker exec polyglot-tts rm /app/config/ui_password.json
+docker restart polyglot-tts
+```
+
+Then open the UI within 10 minutes and set a new password. (If the password
+comes from `POCKET_TTS_UI_TOKEN`, look it up or change it there.)
+
+### Using the password from scripts
 
 Send it as a Bearer header:
 
 ```bash
 curl -X POST http://<host>:10201/api/ui/restart \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer <password>"
 ```
 
-The header `X-UI-Token: <token>` and the query parameter `?token=<token>`
-of earlier versions are still accepted. Prefer the header: a token in a URL
-ends up in browser history and proxy logs.
+The header `X-UI-Token: <password>` and the query parameter
+`?token=<password>` of earlier versions are still accepted. Prefer the
+Bearer header: a password in a URL ends up in browser history and proxy logs.
 
-### What needs the token
+### What needs the password
 
-| Route | Token |
+| Route | Password |
 |---|---|
 | Wyoming (`:10200`) | no |
 | `POST /v1/audio/speech`, `POST /v1/text/normalize` | no |
 | `GET` — `/health`, `/v1/audio/voices`, `/v1/audio/languages`, `/ui`, `/api/ui/status`, `/api/ui/config`, `/api/ui/replacements` | no |
+| `POST /api/ui/setup` | no — but it only works while no password exists and the setup window is open |
 | `POST /v1/audio/voices`, `DELETE /v1/audio/voices/{name}` | **yes** |
 | `POST /api/ui/config`, `POST /api/ui/replacements`, `POST /api/ui/restart` | **yes** |
-| `GET /api/ui/session` (token check used by the login) | **yes** |
+| `POST /api/ui/password` (change password) | **yes**, plus the current password in the body |
+| `GET /api/ui/session` (password check used by the login) | **yes** |
 
-Any other request that is not a `GET` is rejected without a token as well.
+Any other request that is not a `GET` is rejected without the password as
+well.
+
+### Special cases
+
+- **Config directory not writable:** no hash can be stored. The server then
+  generates a one-time password for that run and prints it once in the log.
+  Fix the mount (writable by UID 10001) or use `POCKET_TTS_UI_TOKEN`.
+- **`ui_password.json` damaged:** the management functions stay closed and
+  the log says so. Delete the file and restart.
 
 > **Upgrading from 0.9.0 or older:** the management routes above were open
 > (or, with `POCKET_TTS_UI_TOKEN` set, only `/api/ui/*` was protected). After
-> the upgrade they return 401 until the token is sent. Home Assistant,
-> OpenClaw and other synthesis clients need no change.
+> the upgrade they return 401 until a password is set and sent. Home
+> Assistant, OpenClaw and other synthesis clients need no change.
 
-> **Scope:** the token protects *changes*. Synthesis and the read-only
-> routes are reachable by everyone who can reach the port. If that is not
-> acceptable on your network, put the server behind a reverse proxy with
+> **Scope:** the password protects *changes*. Synthesis and the read-only
+> routes are reachable by everyone who can reach the port, and over plain
+> `http://` the password travels unencrypted. If that is not acceptable on
+> your network, put the server behind a reverse proxy with TLS and
 > authentication (see below).
 
 ## Microphone recording needs a secure context

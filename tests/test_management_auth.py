@@ -1,6 +1,7 @@
-"""Management token: every state-changing HTTP route needs it, synthesis and
-read-only routes do not. Also covers where the token comes from (env, generated
-file), upload and settings validation, and the login parts of the web UI.
+"""Management password: every state-changing HTTP route needs it, synthesis
+and read-only routes do not. Also covers where the password comes from (env
+variable, first-run setup in the browser, stored as a hash), changing it, the
+rate limit, upload and settings validation, and the forms of the web UI.
 
 No model is loaded: the app runs against a PolyglotCore with a dummy model,
 and synthesis is exercised through the chime marker (no inference).
@@ -9,10 +10,12 @@ and synthesis is exercised through the chime marker (no inference).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import stat
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.routing import APIRoute
@@ -25,6 +28,8 @@ from polyglot_tts.ui_server import mount_ui
 
 WEB_DIR = Path(auth.__file__).parent / "web"
 ENV_TOKEN = "test-token-0123456789abcdef"
+PASSWORD = "correct horse 42!"
+NEW_PASSWORD = "battery-staple-2026"
 
 
 class _FakeModel:
@@ -35,8 +40,9 @@ class _FakeModel:
 @pytest.fixture
 def cfg_dir(tmp_path, monkeypatch):
     """Isolated config dir + clean env; restores everything afterwards."""
-    for key in (*config_store.EDITABLE_KEYS, auth.TOKEN_ENV):
+    for key in (*config_store.EDITABLE_KEYS, auth.TOKEN_ENV, auth.SETUP_WINDOW_ENV):
         monkeypatch.delenv(key, raising=False)  # also restores on teardown
+    monkeypatch.setattr(auth, "_SCRYPT_N", 2**10)  # cheap hashes keep the suite fast
     d = tmp_path / "config"
     monkeypatch.setenv("POCKET_TTS_CONFIG_FILE", str(d / "settings.json"))
     auth._reset_for_tests()
@@ -75,6 +81,27 @@ def client(app):
     return TestClient(app)
 
 
+def _client(core, voices_dir) -> TestClient:
+    application = build_app(core, voices_dir)
+    mount_ui(application, core)
+    return TestClient(application)
+
+
+@pytest.fixture
+def fresh(cfg_dir, core, voices_dir):
+    """A server as on its first start: no env password, none stored yet."""
+    return _client(core, voices_dir)
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Replaces the clock of the auth module. Request it BEFORE `fresh` /
+    `client` so the setup window starts on this clock."""
+    t = {"now": 50_000.0}
+    monkeypatch.setattr(auth, "_now", lambda: t["now"])
+    return t
+
+
 def _bearer(token: str = ENV_TOKEN) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
@@ -95,87 +122,341 @@ def no_restart(monkeypatch):
         def start(self):
             started.append(True)
 
-    monkeypatch.setattr("polyglot_tts.ui_server.threading.Thread", _Thread)
+    # Only ui_server's view of `threading` — the real module must keep working
+    # (the auth check itself runs in a worker thread).
+    from polyglot_tts import ui_server
+
+    monkeypatch.setattr(ui_server, "threading", SimpleNamespace(Thread=_Thread))
     return started
 
 
-# ── Where the token comes from ──────────────────────────────────────────────
+MUTATING = [
+    ("POST", "/v1/audio/voices"),
+    ("DELETE", "/v1/audio/voices/somevoice"),
+    ("POST", "/api/ui/config"),
+    ("POST", "/api/ui/replacements"),
+    ("POST", "/api/ui/restart"),
+    ("POST", "/api/ui/password"),
+]
 
 
-def test_token_is_generated_persisted_and_private(cfg_dir, caplog):
-    caplog.set_level(logging.DEBUG)
-    tok = auth.get_token()
-    auth.announce()
-    path = cfg_dir / "ui_token"
-    assert path == auth.token_path()
-    assert path.read_text().strip() == tok
-    assert len(tok) >= 32
+# ── Where the password comes from ───────────────────────────────────────────
+
+
+def test_first_start_is_closed_until_a_password_is_set(fresh, cfg_dir, no_restart):
+    """Nothing configured: management is refused (never open), the page is
+    told to offer the setup form, synthesis still works."""
+    status = fresh.get("/api/ui/status").json()
+    assert status["auth_mode"] == "setup" and status["auth_enabled"] is True
+    assert 0 < status["setup_seconds_left"] <= 600
+    assert status["min_password_length"] == 10
+    for method, path in MUTATING:
+        for headers in ({}, _bearer("any-value-at-all-123")):
+            r = fresh.request(method, path, headers=headers)
+            assert r.status_code == 401, (method, path)
+            assert "No management password" in r.json()["detail"]
+    assert fresh.get("/api/ui/session", headers=_bearer("x" * 12)).status_code == 401
+    assert no_restart == []
+    assert list(cfg_dir.iterdir()) == []  # nothing stored, no probe file left
+    r = fresh.post("/v1/audio/speech", json={"input": CHIME_MARKER, "response_format": "wav"})
+    assert r.status_code == 200
+
+
+def test_setup_happy_path(fresh, cfg_dir, no_restart):
+    r = fresh.post("/api/ui/setup", json={"password": PASSWORD})
+    assert r.status_code == 200 and r.json() == {"authenticated": True}
+
+    # stored as a salted hash, private, written atomically (no temp file left)
+    path = cfg_dir / "ui_password.json"
+    assert path == auth.password_path()
+    assert [p.name for p in cfg_dir.iterdir()] == ["ui_password.json"]
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert auth.token_source() == "file"
-    # no temp file left behind
-    assert [p.name for p in cfg_dir.iterdir()] == ["ui_token"]
-    # the log names the file, never the value
-    assert str(path) in caplog.text
-    assert tok not in caplog.text
+    raw = path.read_text()
+    record = json.loads(raw)
+    assert record["algo"] == "scrypt" and len(bytes.fromhex(record["salt"])) >= 16
+    assert len(bytes.fromhex(record["hash"])) == 32
+    assert PASSWORD not in raw and "password" not in record
+
+    status = fresh.get("/api/ui/status").json()
+    assert status["auth_mode"] == "password" and status["setup_seconds_left"] == 0
+
+    # the password is the Bearer value for the UI and for API clients
+    assert fresh.get("/api/ui/session", headers=_bearer(PASSWORD)).status_code == 200
+    assert fresh.get("/api/ui/session", headers={"X-UI-Token": PASSWORD}).status_code == 200
+    assert fresh.get("/api/ui/session", headers=_bearer(PASSWORD + "x")).status_code == 401
+    assert fresh.get("/api/ui/session").status_code == 401
+    assert fresh.post("/api/ui/restart").status_code == 401
+    assert fresh.post("/api/ui/restart", headers=_bearer(PASSWORD)).status_code == 200
+    assert no_restart == [True]
+
+    # setup works exactly once
+    r = fresh.post("/api/ui/setup", json={"password": "another-password-1"})
+    assert r.status_code == 403 and "already" in r.json()["detail"]
+    assert fresh.get("/api/ui/session", headers=_bearer("another-password-1")).status_code == 401
+    assert json.loads(path.read_text()) == record
 
 
-def test_token_survives_restart_and_is_announced_once(cfg_dir, caplog):
-    first = auth.get_token()
-    auth._reset_for_tests()  # "restart": module state gone, file stays
-    caplog.set_level(logging.INFO)
-    auth.announce()
-    auth.announce()
-    assert auth.get_token() == first
-    assert caplog.text.count("Management token:") == 1
-
-
-def test_env_token_takes_precedence_and_writes_no_file(cfg_dir, monkeypatch, caplog):
-    monkeypatch.setenv(auth.TOKEN_ENV, ENV_TOKEN)
+def test_password_survives_restart_and_is_never_logged(fresh, cfg_dir, caplog):
     caplog.set_level(logging.DEBUG)
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    record = json.loads((cfg_dir / "ui_password.json").read_text())
+    auth._reset_for_tests()  # "restart": module state gone, file stays
     auth.announce()
-    assert auth.get_token() == ENV_TOKEN
-    assert auth.token_source() == "env"
-    assert not (cfg_dir / "ui_token").exists()
-    assert ENV_TOKEN not in caplog.text
+    auth.announce()
+    assert auth.mode() == "password"
+    assert auth.verify(PASSWORD) == "ok" and auth.verify(PASSWORD + "x") == "bad"
+    assert caplog.text.count("Management password: set") == 1  # announced once
+    assert str(cfg_dir / "ui_password.json") in caplog.text
+    for secret in (PASSWORD, record["hash"], record["salt"]):
+        assert secret not in caplog.text
 
 
-def test_env_token_wins_over_existing_file(cfg_dir, monkeypatch):
-    generated = auth.get_token()
-    monkeypatch.setenv(auth.TOKEN_ENV, ENV_TOKEN)
-    assert auth.get_token() == ENV_TOKEN
-    assert auth.token_matches(generated) is False
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"password": "too-short"},  # 9 characters
+        {"password": ""},
+        {"password": "pässwort-mit-umlaut"},  # not plain ASCII
+        {"password": "emoji-password-🔑🔑"},
+        {"password": " leading-space-pw"},
+        {"password": "trailing-space-pw "},
+        {"password": "tab\tin-the-password"},
+        {"password": "x" * 300},
+        {"password": 12345678901234},
+        {"password": None},
+        {"passwort": PASSWORD},
+        {},
+    ],
+)
+def test_setup_rejects_unusable_passwords(fresh, cfg_dir, body):
+    r = fresh.post("/api/ui/setup", json=body)
+    assert r.status_code == 400, r.text
+    assert fresh.get("/api/ui/status").json()["auth_mode"] == "setup"
+    assert list(cfg_dir.iterdir()) == []
 
 
-def test_short_env_token_warns(cfg_dir, monkeypatch, caplog):
-    monkeypatch.setenv(auth.TOKEN_ENV, "short")
+def test_setup_body_is_checked_and_size_limited(fresh, cfg_dir):
+    as_json = {"Content-Type": "application/json"}
+    assert fresh.post("/api/ui/setup", content=b"{not json", headers=as_json).status_code == 400
+    # only application/json: the content types a cross-site form can send are refused
+    body = json.dumps({"password": PASSWORD})
+    for content_type in ("text/plain", "application/x-www-form-urlencoded", "multipart/form-data"):
+        r = fresh.post("/api/ui/setup", content=body, headers={"Content-Type": content_type})
+        assert r.status_code == 415, content_type
+    assert fresh.post("/api/ui/setup", content=body).status_code == 415
+    assert fresh.post("/api/ui/setup", json=["a", "list"]).status_code == 400
+    big = {"password": PASSWORD, "padding": "x" * 10_000}
+    assert fresh.post("/api/ui/setup", json=big).status_code == 413
+    assert list(cfg_dir.iterdir()) == []
+
+
+def test_setup_closes_after_the_window(clock, fresh, cfg_dir, no_restart):
+    clock["now"] += 599
+    assert fresh.get("/api/ui/status").json()["auth_mode"] == "setup"
+    clock["now"] += 2  # 10 minutes after start are over
+    status = fresh.get("/api/ui/status").json()
+    assert status["auth_mode"] == "closed" and status["setup_seconds_left"] == 0
+    r = fresh.post("/api/ui/setup", json={"password": PASSWORD})
+    assert r.status_code == 403
+    assert "Restart" in r.json()["detail"] and auth.TOKEN_ENV in r.json()["detail"]
+    assert list(cfg_dir.iterdir()) == []
+    # still closed, not open: no password can be valid
+    for method, path in MUTATING:
+        assert fresh.request(method, path, headers=_bearer(PASSWORD)).status_code == 401
+    assert no_restart == []
+
+
+def test_setup_works_until_the_last_moment_of_the_window(clock, fresh):
+    clock["now"] += 599
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+
+
+def test_a_restart_reopens_the_setup_window(clock, fresh):
+    clock["now"] += 3600
+    assert auth.mode() == "closed"
+    auth._reset_for_tests()  # new process …
+    auth.announce()  # … builds the app again
+    assert auth.mode() == "setup" and auth.setup_seconds_left() == 600
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+
+
+def test_setup_window_length_comes_from_a_constant_with_env_override(monkeypatch):
+    monkeypatch.delenv(auth.SETUP_WINDOW_ENV, raising=False)
+    assert auth.SETUP_WINDOW_MINUTES == 10
+    assert auth.setup_window_seconds() == 600
+    for raw, seconds in (("1", 60), ("0.5", 30), ("0", 0), ("30", 1800)):
+        monkeypatch.setenv(auth.SETUP_WINDOW_ENV, raw)
+        assert auth.setup_window_seconds() == seconds, raw
+    for bad in ("abc", "-5", "nan", "inf", "99999999", ""):
+        monkeypatch.setenv(auth.SETUP_WINDOW_ENV, bad)
+        assert auth.setup_window_seconds() == 600, bad
+
+
+def test_setup_can_be_disabled(cfg_dir, core, voices_dir, monkeypatch, caplog):
+    monkeypatch.setenv(auth.SETUP_WINDOW_ENV, "0")
     caplog.set_level(logging.WARNING)
+    c = _client(core, voices_dir)
+    assert c.get("/api/ui/status").json()["auth_mode"] == "closed"
+    r = c.post("/api/ui/setup", json={"password": PASSWORD})
+    assert r.status_code == 403 and "disabled" in r.json()["detail"]
+    assert c.post("/api/ui/restart", headers=_bearer(PASSWORD)).status_code == 401
+    assert "in-browser setup is disabled" in caplog.text
+
+
+def test_setup_is_refused_when_the_env_password_is_set(client, cfg_dir):
+    assert client.get("/api/ui/status").json()["auth_mode"] == "env"
+    r = client.post("/api/ui/setup", json={"password": PASSWORD})
+    assert r.status_code == 403 and auth.TOKEN_ENV in r.json()["detail"]
+    assert not (cfg_dir / "ui_password.json").exists()
+    assert client.get("/api/ui/session", headers=_bearer(PASSWORD)).status_code == 401
+
+
+def test_env_password_still_works_and_takes_precedence(fresh, monkeypatch, caplog):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    monkeypatch.setenv(auth.TOKEN_ENV, ENV_TOKEN)
+    assert auth.mode() == "env"
+    assert fresh.get("/api/ui/session", headers=_bearer(ENV_TOKEN)).status_code == 200
+    assert fresh.get("/api/ui/session", headers=_bearer(PASSWORD)).status_code == 401
+    # and without it the stored password is back in charge
+    monkeypatch.delenv(auth.TOKEN_ENV)
+    assert fresh.get("/api/ui/session", headers=_bearer(PASSWORD)).status_code == 200
+
+
+def test_env_password_is_announced_without_its_value(cfg_dir, monkeypatch, caplog):
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setenv(auth.TOKEN_ENV, ENV_TOKEN)
+    auth.announce()
+    assert auth.mode() == "env" and auth.verify(ENV_TOKEN) == "ok"
+    assert ENV_TOKEN not in caplog.text and "shorter than" not in caplog.text
+    assert not cfg_dir.exists() or list(cfg_dir.iterdir()) == []
+    auth._reset_for_tests()
+    monkeypatch.setenv(auth.TOKEN_ENV, "short")
     auth.announce()
     assert "shorter than" in caplog.text
-    assert auth.token_matches("short")  # still honoured: operator's choice
+    assert auth.verify("short") == "ok"  # still honoured: operator's choice
 
 
-def test_unusable_token_file_is_replaced(cfg_dir):
+# ── Change password ─────────────────────────────────────────────────────────
+
+
+def _change(client, bearer, current, new):
+    return client.post(
+        "/api/ui/password",
+        headers=_bearer(bearer) if bearer else {},
+        json={"current_password": current, "new_password": new},
+    )
+
+
+def test_change_password(fresh, cfg_dir):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    path = cfg_dir / "ui_password.json"
+    before = json.loads(path.read_text())
+
+    r = _change(fresh, PASSWORD, PASSWORD, NEW_PASSWORD)
+    assert r.status_code == 200 and r.json() == {"changed": True}
+
+    after = json.loads(path.read_text())
+    assert after["salt"] != before["salt"] and after["hash"] != before["hash"]
+    assert NEW_PASSWORD not in path.read_text()
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert [p.name for p in cfg_dir.iterdir()] == ["ui_password.json"]
+    assert fresh.get("/api/ui/session", headers=_bearer(PASSWORD)).status_code == 401
+    assert fresh.get("/api/ui/session", headers=_bearer(NEW_PASSWORD)).status_code == 200
+    auth._reset_for_tests()  # and it is the new one after a restart
+    assert auth.verify(NEW_PASSWORD) == "ok" and auth.verify(PASSWORD) == "bad"
+
+
+def test_change_password_with_wrong_current_password(fresh, cfg_dir):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    before = (cfg_dir / "ui_password.json").read_text()
+    for current in ("wrong-current-pw", "", None, 12345):
+        r = _change(fresh, PASSWORD, current, NEW_PASSWORD)
+        assert r.status_code == 403, current
+        assert "current password" in r.json()["detail"]
+    assert (cfg_dir / "ui_password.json").read_text() == before
+    assert fresh.get("/api/ui/session", headers=_bearer(PASSWORD)).status_code == 200
+    assert fresh.get("/api/ui/session", headers=_bearer(NEW_PASSWORD)).status_code == 401
+
+
+def test_change_password_requires_being_logged_in(fresh, cfg_dir):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    before = (cfg_dir / "ui_password.json").read_text()
+    # knowing the current password in the body is not enough without the login
+    assert _change(fresh, None, PASSWORD, NEW_PASSWORD).status_code == 401
+    assert _change(fresh, "wrong-bearer-pw", PASSWORD, NEW_PASSWORD).status_code == 401
+    assert (cfg_dir / "ui_password.json").read_text() == before
+
+
+@pytest.mark.parametrize("new", ["too-short", "pässwort-mit-umlaut", " space-in-front", None])
+def test_change_password_rejects_unusable_new_password(fresh, new):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    assert _change(fresh, PASSWORD, PASSWORD, new).status_code == 400
+    assert fresh.get("/api/ui/session", headers=_bearer(PASSWORD)).status_code == 200
+
+
+def test_change_password_is_not_offered_for_the_env_password(client, cfg_dir):
+    r = _change(client, ENV_TOKEN, ENV_TOKEN, NEW_PASSWORD)
+    assert r.status_code == 409 and auth.TOKEN_ENV in r.json()["detail"]
+    assert not (cfg_dir / "ui_password.json").exists()
+    assert client.get("/api/ui/session", headers=_bearer()).status_code == 200
+
+
+# ── Forgotten password, damaged file, unwritable directory ──────────────────
+
+
+def test_forgotten_password_delete_the_file_and_restart(fresh, cfg_dir):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    (cfg_dir / "ui_password.json").unlink()
+    auth._reset_for_tests()  # restart
+    auth.announce()
+    assert fresh.get("/api/ui/status").json()["auth_mode"] == "setup"
+    assert fresh.get("/api/ui/session", headers=_bearer(PASSWORD)).status_code == 401
+    assert fresh.post("/api/ui/setup", json={"password": NEW_PASSWORD}).status_code == 200
+    assert fresh.get("/api/ui/session", headers=_bearer(NEW_PASSWORD)).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        "not json",
+        "[]",
+        '{"v": 1}',
+        '{"v": 2, "algo": "scrypt", "n": 16384, "r": 8, "p": 1, "salt": "00"}',
+        # absurd cost parameters must not be computed
+        '{"v": 1, "algo": "scrypt", "n": 1073741824, "r": 8, "p": 1, '
+        '"salt": "0011223344556677", "hash": "00112233445566778899aabbccddeeff"}',
+        '{"v": 1, "algo": "plain", "salt": "0011223344556677", '
+        '"hash": "00112233445566778899aabbccddeeff"}',
+    ],
+)
+def test_unusable_password_file_fails_closed(cfg_dir, core, voices_dir, caplog, content):
+    """A damaged hash file must neither be accepted nor reopen the setup."""
     cfg_dir.mkdir(parents=True)
-    path = cfg_dir / "ui_token"
-    for junk in ("", "abc", "has white space in it!!", "x" * 5000):
-        path.write_text(junk)
-        auth._reset_for_tests()
-        tok = auth.get_token()
-        assert tok != junk.strip() and len(tok) >= 32
-        assert path.read_text().strip() == tok
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    path = cfg_dir / "ui_password.json"
+    path.write_text(content)
+    caplog.set_level(logging.ERROR)
+    c = _client(core, voices_dir)
+    assert c.get("/api/ui/status").json()["auth_mode"] == "closed"
+    r = c.post("/api/ui/setup", json={"password": PASSWORD})
+    assert r.status_code == 403 and "unusable" in r.json()["detail"]
+    assert c.post("/api/ui/restart", headers=_bearer(PASSWORD)).status_code == 401
+    assert path.read_text() == content
+    assert "Delete it and restart" in caplog.text
 
 
-def test_wide_permissions_on_existing_file_are_tightened(cfg_dir):
-    cfg_dir.mkdir(parents=True)
-    path = cfg_dir / "ui_token"
-    path.write_text("operator-chosen-token-123456\n")
+def test_wide_permissions_on_the_password_file_are_tightened(fresh, cfg_dir):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    path = cfg_dir / "ui_password.json"
     os.chmod(path, 0o644)
-    assert auth.get_token() == "operator-chosen-token-123456"
+    auth._reset_for_tests()
+    assert auth.verify(PASSWORD) == "ok"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
-def test_unwritable_config_dir_falls_back_to_a_run_token(tmp_path, monkeypatch, caplog):
+def test_unwritable_config_dir_falls_back_to_a_one_run_token(
+    tmp_path, monkeypatch, caplog, core, voices_dir
+):
     blocker = tmp_path / "not-a-dir"
     blocker.write_text("x")  # parent of the config "dir" is a file
     monkeypatch.delenv(auth.TOKEN_ENV, raising=False)
@@ -183,17 +464,63 @@ def test_unwritable_config_dir_falls_back_to_a_run_token(tmp_path, monkeypatch, 
     auth._reset_for_tests()
     caplog.set_level(logging.INFO)
     try:
-        tok = auth.get_token()
+        c = _client(core, voices_dir)
         auth.announce()
-        auth.announce()
-        assert auth.token_source() == "memory"
-        assert auth.get_token() == tok  # stable for this run
-        assert caplog.text.count(tok) == 1  # shown exactly once
+        assert auth.mode() == "memory"
+        (token,) = [w for r in caplog.records for w in r.getMessage().split() if len(w) == 43]
+        assert caplog.text.count(token) == 1  # shown exactly once
+        assert c.get("/api/ui/session", headers=_bearer(token)).status_code == 200
+        assert c.get("/api/ui/session", headers=_bearer("wrong-token-xyz")).status_code == 401
+        assert c.get("/api/ui/status").json()["auth_mode"] == "memory"
+        r = c.post("/api/ui/setup", json={"password": PASSWORD})
+        assert r.status_code == 403 and "not writable" in r.json()["detail"]
     finally:
         auth._reset_for_tests()
 
 
-def test_comparison_is_constant_time(cfg_dir, monkeypatch):
+# ── Hashing and comparison ──────────────────────────────────────────────────
+
+
+def test_passwords_are_hashed_with_scrypt_and_a_fresh_salt(monkeypatch):
+    monkeypatch.setattr(auth, "_SCRYPT_N", 2**14)  # the shipped cost
+    a, b = auth._new_record(PASSWORD), auth._new_record(PASSWORD)
+    assert a["algo"] == "scrypt" and (a["n"], a["r"], a["p"]) == (16384, 8, 1)
+    assert a["salt"] != b["salt"] and a["hash"] != b["hash"]
+    assert auth._record_usable(a)
+    assert auth._derive(PASSWORD, a).hex() == a["hash"]
+    assert auth._derive(PASSWORD + "x", a).hex() != a["hash"]
+
+
+def test_stored_password_is_checked_by_hashing_in_constant_time(fresh, monkeypatch):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    auth._reset_for_tests()  # no cached verification
+    derived, compared = [], []
+    real_derive, real_compare = auth._derive, auth.hmac.compare_digest
+
+    def spy_derive(password, record):
+        derived.append(password)
+        return real_derive(password, record)
+
+    def spy_compare(a, b):
+        compared.append((a, b))
+        return real_compare(a, b)
+
+    monkeypatch.setattr(auth, "_derive", spy_derive)
+    monkeypatch.setattr(auth.hmac, "compare_digest", spy_compare)
+    assert auth.verify("wrong-password-1") == "bad"
+    assert auth.verify(PASSWORD) == "ok"
+    assert derived == ["wrong-password-1", PASSWORD]
+    assert len(compared) == 2 and all(len(a) == len(b) == 32 for a, b in compared)
+
+
+def test_oversized_credential_is_refused_without_hashing(fresh, monkeypatch):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    auth._reset_for_tests()
+    monkeypatch.setattr(auth, "_derive", lambda *_: pytest.fail("hashed an oversized value"))
+    assert auth.verify("x" * 5000) == "bad"
+
+
+def test_env_password_comparison_is_constant_time(cfg_dir, monkeypatch):
     monkeypatch.setenv(auth.TOKEN_ENV, ENV_TOKEN)
     calls = []
     real = auth.hmac.compare_digest
@@ -203,22 +530,68 @@ def test_comparison_is_constant_time(cfg_dir, monkeypatch):
         return real(a, b)
 
     monkeypatch.setattr(auth.hmac, "compare_digest", spy)
-    assert auth.token_matches(ENV_TOKEN) is True
-    assert auth.token_matches(ENV_TOKEN + "x") is False
-    assert auth.token_matches("tökén-with-non-ascii") is False
+    assert auth.verify(ENV_TOKEN) == "ok"
+    assert auth.verify(ENV_TOKEN + "x") == "bad"
+    assert auth.verify("tökén-with-non-ascii") == "bad"
     assert len(calls) == 3
-    assert auth.token_matches("") is False and auth.token_matches(None) is False
+    assert auth.verify("") == "bad" and auth.verify(None) == "bad"
 
 
-# ── Mutating routes: 401 without the token, served with it ──────────────────
+# ── Rate limit ──────────────────────────────────────────────────────────────
 
-MUTATING = [
-    ("POST", "/v1/audio/voices"),
-    ("DELETE", "/v1/audio/voices/somevoice"),
-    ("POST", "/api/ui/config"),
-    ("POST", "/api/ui/replacements"),
-    ("POST", "/api/ui/restart"),
-]
+
+def test_failed_logins_are_rate_limited(clock, fresh, monkeypatch):
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+    for i in range(auth.MAX_FAILED_ATTEMPTS):
+        r = fresh.get("/api/ui/session", headers=_bearer(f"wrong-guess-{i:03d}"))
+        assert r.status_code == 401, i
+
+    r = fresh.get("/api/ui/session", headers=_bearer("wrong-guess-xyz"))
+    assert r.status_code == 429 and r.headers["retry-after"] == "60"
+    assert fresh.post("/api/ui/restart", headers=_bearer("wrong-guess-xyz")).status_code == 429
+
+    # while limited, nothing is evaluated for an address that never logged in —
+    # not even the right password, and no hash is computed
+    real_derive, hashed = auth._derive, []
+
+    def counting_derive(password, record):
+        hashed.append(password)
+        return real_derive(password, record)
+
+    monkeypatch.setattr(auth, "_derive", counting_derive)
+    assert auth.verify("wrong-guess-abc", "10.9.8.7") == "limited"
+    assert auth.verify(PASSWORD, "10.9.8.7") == "limited"
+    # the browser that is logged in (it did the setup) is not locked out
+    assert fresh.get("/api/ui/session", headers=_bearer(PASSWORD)).status_code == 200
+    # a missing credential is not an attempt and stays a plain 401
+    assert fresh.get("/api/ui/session").status_code == 401
+
+    assert hashed == []
+
+    clock["now"] += auth.ATTEMPT_WINDOW_S + 1
+    assert auth.verify(PASSWORD, "10.9.8.7") == "ok"
+
+
+def test_rate_limit_also_covers_the_env_password(clock, client):
+    for i in range(auth.MAX_FAILED_ATTEMPTS):
+        assert client.get("/api/ui/session", headers=_bearer(f"guess-{i}")).status_code == 401
+    assert client.get("/api/ui/session", headers=_bearer("guess-x")).status_code == 429
+    assert client.get("/api/ui/session", headers=_bearer()).status_code == 429
+    clock["now"] += auth.ATTEMPT_WINDOW_S + 1
+    assert client.get("/api/ui/session", headers=_bearer()).status_code == 200
+
+
+def test_setup_calls_are_rate_limited(clock, fresh, cfg_dir):
+    for _ in range(auth.MAX_SETUP_ATTEMPTS):
+        assert fresh.post("/api/ui/setup", json={"password": "short"}).status_code == 400
+    r = fresh.post("/api/ui/setup", json={"password": PASSWORD})
+    assert r.status_code == 429
+    assert list(cfg_dir.iterdir()) == []
+    clock["now"] += auth.ATTEMPT_WINDOW_S + 1
+    assert fresh.post("/api/ui/setup", json={"password": PASSWORD}).status_code == 200
+
+
+# ── Mutating routes: 401 without the password, served with it ──────────────────
 
 
 @pytest.mark.parametrize(("method", "path"), MUTATING)
@@ -280,7 +653,15 @@ def test_every_registered_unsafe_route_needs_the_token(app, client, no_restart):
         ("POST", "/api/ui/config"),
         ("POST", "/api/ui/replacements"),
         ("POST", "/api/ui/restart"),
+        ("POST", "/api/ui/password"),
     } <= checked
+    # the only open POSTs: synthesis, preview, and the self-guarded setup
+    open_posts = {
+        ("POST", "/v1/audio/speech"),
+        ("POST", "/v1/text/normalize"),
+        ("POST", "/api/ui/setup"),
+    }
+    assert open_posts == auth.OPEN_UNSAFE_ROUTES
     assert no_restart == []
 
 
@@ -298,6 +679,9 @@ def test_every_registered_unsafe_route_needs_the_token(app, client, no_restart):
         ("POST", "/ui/static/app.js"),  # mounted sub-app
         ("POST", "/no/such/route"),
         ("POST", "/v1/audio/speech/extra"),  # only the exact open paths are open
+        ("POST", "/api/ui/setup/extra"),
+        ("PUT", "/api/ui/setup"),
+        ("DELETE", "/api/ui/password"),
         ("DELETE", "/v1/audio/speech"),
     ],
 )
@@ -358,19 +742,6 @@ def test_accepted_ways_to_send_the_token(client):
     assert client.get(url, params={"token": ENV_TOKEN}).status_code == 200
     assert client.get(url, headers=_bearer(ENV_TOKEN[:-1])).status_code == 401
     assert client.get(url, headers=_bearer()).json() == {"authenticated": True}
-
-
-def test_generated_token_protects_when_no_env_token_is_set(cfg_dir, core, voices_dir, no_restart):
-    """Secure by default: nothing configured → a token exists and is enforced."""
-    application = build_app(core, voices_dir)
-    mount_ui(application, core)
-    c = TestClient(application)
-    tok = (cfg_dir / "ui_token").read_text().strip()
-    assert c.post("/api/ui/restart").status_code == 401
-    assert c.delete("/v1/audio/voices/x").status_code == 401
-    assert c.get("/api/ui/session", headers=_bearer(tok)).status_code == 200
-    assert c.get("/api/ui/status").json()["token_source"] == "file"
-    assert no_restart == []
 
 
 # ── Synthesis and read-only routes stay open ────────────────────────────────
@@ -435,7 +806,7 @@ def test_token_is_not_exposed_by_any_open_route(client):
         assert ENV_TOKEN not in r.text, path
     assert auth.TOKEN_ENV not in client.get("/api/ui/config").json()["config"]
     status = client.get("/api/ui/status").json()
-    assert status["auth_enabled"] is True and status["token_source"] == "env"
+    assert status["auth_enabled"] is True and status["auth_mode"] == "env"
 
 
 def test_token_cannot_be_set_through_settings(client, cfg_dir):
@@ -446,7 +817,8 @@ def test_token_cannot_be_set_through_settings(client, cfg_dir):
         json={"updates": {auth.TOKEN_ENV: "attacker-chosen-token-1234"}},
     )
     assert r.status_code == 200
-    assert auth.get_token() == ENV_TOKEN
+    assert auth.verify(ENV_TOKEN) == "ok"
+    assert auth.verify("attacker-chosen-token-1234") == "bad"
     assert auth.TOKEN_ENV not in config_store._read_file()
 
 
@@ -745,27 +1117,63 @@ def test_ui_page_is_open_and_carries_protective_headers(client):
     assert "content-security-policy" in client.get("/ui/static/index.html").headers
 
 
-def test_ui_assets_contain_the_login_flow():
+def test_ui_assets_contain_login_setup_and_change_forms():
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
     js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
     for element_id in (
         "login-btn",
         "logout-btn",
-        "token-gate",
-        "token-input",
-        "token-save",
         "auth-state",
+        "auth-panel",
+        "login-form",
+        "setup-form",
+        "change-form",
+        "setup-closed",
+        "settings-login-btn",
+        "settings-logout-btn",
     ):
         assert f'id="{element_id}"' in html, element_id
     assert "<script>" not in html and "onclick=" not in html  # CSP: no inline script
+    # real forms that submit; never by GET (a password must not end up in a URL)
+    assert html.count("<form ") == 3 == html.count('method="post"')
+    assert html.count('<button type="submit">') == 3
+    # hints for password managers: a fixed user name next to every password
+    assert html.count('autocomplete="username"') == 3
+    assert html.count('value="admin"') == 3
+    assert html.count('autocomplete="current-password"') == 2  # login, change
+    assert html.count('autocomplete="new-password"') == 4  # setup + change, each twice
+    assert html.count('minlength="10"') == 4
+    # every password field is a password field with a label
+    for field in (
+        "login-password",
+        "setup-password",
+        "setup-repeat",
+        "change-current",
+        "change-new",
+        "change-repeat",
+    ):
+        assert f'<label for="{field}">' in html, field
+        tag = html[html.index(f'<input id="{field}"') :].split("/>", 1)[0]
+        assert 'type="password"' in tag, field
+    assert html.count("data-toggle=") == 3  # show / hide
+    assert "Management token" not in html and "management token" not in html
+
     assert '"Bearer " + ' in js and "Authorization" in js
     assert "localStorage" in js and "polyglot_ui_token" in js
-    assert "/api/ui/session" in js
+    for route in ("/api/ui/session", "/api/ui/setup", "/api/ui/password"):
+        assert route in js, route
     assert "requireLogin()" in js and "setLoggedOut" in js
     assert "res.status === 401" in js
+    assert 'addEventListener("submit"' in js and "preventDefault()" in js
     # the page reads a legacy ?token= once but never builds such a URL
     assert "token=" not in js.replace("?token=…", "")
     assert "X-UI-Token" not in js
+
+
+def test_ui_stylesheet_has_finger_sized_form_controls():
+    css = (WEB_DIR / "style.css").read_text(encoding="utf-8")
+    assert "min-height: 44px" in css and "font-size: 16px" in css
+    assert ".auth-form" in css and "flex-direction: column" in css
 
 
 def test_ui_escapes_server_values_before_inserting_markup():

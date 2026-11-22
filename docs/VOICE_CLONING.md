@@ -68,11 +68,10 @@ same; downstream callers don't need to reconnect.
 
 The same operations are available via HTTP on the OpenAI-Speech port
 (`:10201` by default). Listing is open; upload and delete need the
-management token (see [WEB_UI.md](WEB_UI.md#authentication) for where to find
-it):
+management password (see [WEB_UI.md](WEB_UI.md#authentication)):
 
 ```bash
-TOKEN=$(docker exec polyglot-tts cat /app/config/ui_token)
+read -rs PASSWORD   # type the management password; it is not echoed
 ```
 
 ### List voices
@@ -83,7 +82,7 @@ curl http://polyglot-tts:10201/v1/audio/voices
 ### Upload a new voice
 ```bash
 curl -X POST http://polyglot-tts:10201/v1/audio/voices \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $PASSWORD" \
   -F "file=@my_voice.wav" \
   -F "name=aria"
 ```
@@ -91,7 +90,7 @@ curl -X POST http://polyglot-tts:10201/v1/audio/voices \
 ### Delete a voice
 ```bash
 curl -X DELETE http://polyglot-tts:10201/v1/audio/voices/aria \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $PASSWORD"
 ```
 
 The file must have one of the supported audio extensions (`.wav`, `.mp3`,

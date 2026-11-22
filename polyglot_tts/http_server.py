@@ -30,8 +30,9 @@ Streaming the response body is supported via chunked-transfer; clients may
 read audio as it's synthesized.
 
 Auth: synthesis and all GETs are open. Routes marked (token) change state and
-need the management token (`Authorization: Bearer <token>`), see auth.py. The
-app-wide middleware rejects every other non-GET request without a token too.
+need the management password (`Authorization: Bearer <password>`), see
+auth.py. The app-wide middleware rejects every other non-GET request without
+it too.
 """
 
 from __future__ import annotations
@@ -331,9 +332,10 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
         version=__version__,
         description="OpenAI-Speech-compatible HTTP endpoint for Polyglot TTS.",
     )
-    # Default-deny for state-changing methods: only synthesis and the
-    # normalization preview stay open (auth.OPEN_UNSAFE_ROUTES). Covers the
-    # /api/ui/* routes mounted onto this app later as well.
+    # Default-deny for state-changing methods: only synthesis, the
+    # normalization preview and the self-guarded first-run setup stay open
+    # (auth.OPEN_UNSAFE_ROUTES). Covers the /api/ui/* routes mounted onto this
+    # app later as well.
     app.add_middleware(auth.ManagementAuthMiddleware)
     auth.announce()
 
