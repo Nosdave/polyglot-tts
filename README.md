@@ -22,6 +22,7 @@
 - 🐳 **Single Docker image** — `linux/amd64` + `linux/arm64`, CPU + CUDA variants on `ghcr.io`.
 - 🎛️ **Fully env-driven** — every behaviour is a single environment variable; no YAML editing required.
 - 🖥️ **Built-in web UI** — dashboard, voice management (drag-drop / mic / delete), and settings (incl. HF token) at `http://<host>:10201/ui`. See [docs/WEB_UI.md](docs/WEB_UI.md).
+- 🔑 **Management token** — speaking needs no credentials; changing voices or settings does. See [Management token](#management-token).
 
 ---
 
@@ -61,6 +62,32 @@ curl -X POST http://localhost:10201/v1/audio/speech \
   -d '{"model":"polyglot-1","input":"Bonjour le monde","voice":"eve","response_format":"mp3"}' \
   --output hello.mp3
 ```
+
+### Management token
+
+Synthesis (Wyoming, `POST /v1/audio/speech`) and all read-only routes are open
+— no token, no change for Home Assistant or OpenClaw. Everything that changes
+the server (voice upload/delete, settings, restart) needs the management
+token. On first start the server generates one and logs where it is:
+
+```bash
+docker exec polyglot-tts cat /app/config/ui_token
+```
+
+Use it in the web UI (**Login**), or as a header in scripts:
+
+```bash
+curl -X POST http://localhost:10201/v1/audio/voices \
+  -H "Authorization: Bearer $(docker exec polyglot-tts cat /app/config/ui_token)" \
+  -F "file=@my_voice.wav" -F "name=aria"
+```
+
+Set `POCKET_TTS_UI_TOKEN` to choose the token yourself. Details:
+[docs/WEB_UI.md](docs/WEB_UI.md#authentication).
+
+> **Upgrading from 0.9.0 or older:** management calls that used to work
+> without credentials now return 401 until they send the token. Synthesis
+> clients are unaffected.
 
 ---
 

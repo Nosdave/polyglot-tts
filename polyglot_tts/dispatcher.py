@@ -45,12 +45,57 @@ import os
 import time
 from pathlib import Path
 
-from .core import LANGUAGE_TO_BCP47, PolyglotCore
+from .core import ALL_PRESET_VOICES, LANGUAGE_TO_BCP47, PolyglotCore
 from .timing_server import start_timing_server
 from .voice_loader import load_initial_voices
 from .voice_watcher import start_watcher
 
 _LOGGER = logging.getLogger(__name__)
+
+DEFAULT_LANGUAGES = "english_2026-10,german_24l,french_24l"
+DEFAULT_VOICE = "eve"
+
+
+def _resolve_checkpoints(languages_env: str) -> list[str]:
+    """Checkpoints to load, from POCKET_TTS_LANGUAGES (env or settings file).
+
+    Each entry becomes a config file name inside pocket-tts, so only names of
+    installed checkpoints are passed on — never a path or URL. Other entries
+    are dropped with a log line; if nothing valid is left the defaults are
+    loaded, so a bad setting cannot keep the server from starting.
+    """
+    from . import config_store
+    requested = [s.strip() for s in languages_env.split(",") if s.strip()]
+    valid, rejected = config_store.filter_checkpoints(requested)
+    for name in rejected:
+        _LOGGER.error(
+            "Ignoring POCKET_TTS_LANGUAGES entry %r: not a known language "
+            "checkpoint (names only — no paths, no URLs)", name[:80])
+    if not valid:
+        _LOGGER.error("No valid language checkpoint configured — loading the "
+                      "defaults: %s", DEFAULT_LANGUAGES)
+        valid = DEFAULT_LANGUAGES.split(",")
+    if valid != requested:
+        # Keep the UI in line with what is actually loaded.
+        os.environ["POCKET_TTS_LANGUAGES"] = ",".join(valid)
+    return valid
+
+
+def _resolve_default_voice(requested: str, loaded_voices) -> str:
+    """Default voice from POCKET_TTS_VOICE, restricted to known voice names.
+
+    The voice loader of pocket-tts also accepts file paths and URLs, so the
+    configured value is only used if it names a built-in voice or a voice
+    loaded from voices-extra. Anything else falls back to the default voice.
+    """
+    if requested in loaded_voices or requested in ALL_PRESET_VOICES:
+        return requested
+    _LOGGER.error(
+        "POCKET_TTS_VOICE=%r is neither a built-in voice nor a voice loaded "
+        "from voices-extra (names only — no paths, no URLs) — using %r",
+        requested[:80], DEFAULT_VOICE)
+    os.environ["POCKET_TTS_VOICE"] = DEFAULT_VOICE
+    return DEFAULT_VOICE
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -289,11 +334,11 @@ async def run() -> None:
         "POCKET_TTS_LANGUAGES",
         os.environ.get(
             "POCKET_TTS_LANGUAGE",
-            "english_2026-10,german_24l,french_24l",
+            DEFAULT_LANGUAGES,
         ),
     )
-    checkpoints = [s.strip() for s in languages_env.split(",") if s.strip()]
-    default_voice = os.environ.get("POCKET_TTS_VOICE", "eve")
+    checkpoints = _resolve_checkpoints(languages_env)
+    default_voice = os.environ.get("POCKET_TTS_VOICE", DEFAULT_VOICE)
     voices_dir = Path(os.environ.get("POCKET_TTS_VOICES_DIR", "/app/voices"))
     voices_extra_dir = Path(os.environ.get(
         "POCKET_TTS_VOICES_EXTRA_DIR", "/app/voices-extra"))
@@ -346,7 +391,10 @@ async def run() -> None:
     #    logged "could not be encoded" at boot and warmup ran without a voice.
     load_initial_voices(core, [voices_extra_dir])
 
-    # 4) Encode the default voice if it is still unknown (i.e. a preset)
+    # 4) Encode the default voice if it is still unknown (i.e. a preset).
+    #    Only a known voice name gets this far — see _resolve_default_voice.
+    default_voice = _resolve_default_voice(default_voice, core.voice_states)
+    core.default_voice = default_voice
     if default_voice and default_voice not in core.voice_states:
         _LOGGER.info("Encoding default voice: %s", default_voice)
         per_lang = core.encode_voice(default_voice)

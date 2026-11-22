@@ -60,9 +60,11 @@ services:
       POCKET_TTS_LANGUAGES: "english_2026-10,german_24l,french_24l"
       POCKET_TTS_VOICE: "eve"
       POCKET_TTS_DEVICE: "cuda"
-      # Uncomment to require a token for the web UI (recommended if the
-      # port is reachable beyond a single-user LAN):
-      # POCKET_TTS_UI_TOKEN: "change-me"
+      # Management token (voice upload/delete, settings, restart). Unset =
+      # a random one is generated on first start and stored in the config
+      # volume: docker exec polyglot-tts cat /app/config/ui_token
+      # Set your own long random value here to override it:
+      # POCKET_TTS_UI_TOKEN: "<output of: openssl rand -hex 32>"
     volumes:
       - ./voices-extra:/app/voices-extra
       # Named volume (NOT a host bind) so it inherits the image's UID-10001

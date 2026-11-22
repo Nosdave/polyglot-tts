@@ -4,6 +4,87 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.9.1] – 2026-11-22
+
+Security release. **Synthesis clients are not affected** — Wyoming,
+`POST /v1/audio/speech` and all read-only routes work without a token, as
+before. **Managing the server now needs a token** — see *Upgrading* below.
+
+### Security
+
+- **The management API required no authentication by default.** Anyone who
+  could reach the HTTP port could upload and delete voices, change settings,
+  store a HuggingFace token and restart the server; `POCKET_TTS_UI_TOKEN` was
+  optional and never covered `POST`/`DELETE /v1/audio/voices`. Every
+  state-changing route now requires a management token:
+  `POST /v1/audio/voices`, `DELETE /v1/audio/voices/{name}`,
+  `POST /api/ui/config`, `POST /api/ui/replacements`, `POST /api/ui/restart`.
+  The check is default-deny: any request that is not `GET`/`HEAD`/`OPTIONS`
+  is rejected with 401 unless it is one of the two open routes
+  (`POST /v1/audio/speech`, `POST /v1/text/normalize`), and the rejection
+  happens before the request body is read.
+- **Secure by default.** Without `POCKET_TTS_UI_TOKEN` the server generates a
+  random token on first start and stores it as `ui_token` (mode 0600) next to
+  `settings.json`. The log names the file, not the value. Tokens are compared
+  in constant time.
+- **Settings could point the model loader at arbitrary locations.**
+  `POCKET_TTS_LANGUAGES` and `POCKET_TTS_VOICE` were free text that ended up
+  as a config file path respectively a voice source (which may be a URL) in
+  pocket-tts. Both now only accept known names — installed language
+  checkpoints, and built-in or loaded voices. The same check runs at startup
+  on whatever the settings file or the environment holds: invalid entries are
+  logged and skipped, and the defaults are used instead of failing to start.
+- **Voice upload stored any file extension.** The stored suffix must now be
+  one of the audio extensions the loader handles; anything else is a 400.
+  Uploads are capped at 100 voices (HTTP 409 beyond that; dropping files into
+  `voices-extra/` is not limited).
+- **ffmpeg ran with all protocols and formats enabled** on voice files. It is
+  now restricted to local files and to the audio containers behind the
+  supported extensions (WAV, MP3, FLAC, Ogg, AAC, MP4/M4A).
+- **Web UI:** values that come from clients (voice names, last-synthesis
+  fields, error texts) are inserted as text, and the page is served with a
+  Content-Security-Policy — the page now holds the management token, so
+  injected markup must not be able to run there.
+
+### Added
+
+- Web UI login: a **Login** button (and a prompt whenever a management action
+  needs it) asks for the token, keeps it in the browser's localStorage and
+  sends it as `Authorization: Bearer <token>`; **Logout** removes it.
+  Dashboard, voice list, settings view and the test player work without
+  logging in.
+- `GET /api/ui/session` — 200 with a valid token, 401 otherwise.
+- `token_source` (`env` / `file` / `memory`) in `GET /api/ui/status`.
+
+### Changed
+
+- With `POCKET_TTS_UI_TOKEN` set, the UI page and the read-only
+  `GET /api/ui/*` routes used to require the token as well. They are open
+  now (they expose nothing that `/health` and `/v1/audio/voices` did not),
+  so the page can load and offer the login. To keep the page itself private,
+  put a reverse proxy with authentication in front.
+- The token is sent as `Authorization: Bearer <token>`. The former
+  `X-UI-Token` header and the `?token=` query parameter are still accepted;
+  the UI no longer needs a `?token=` URL and removes it from the address bar
+  if an old bookmark carries one.
+- A setting that the server cannot use (unknown checkpoint, unknown default
+  voice, value with control characters) is rejected with HTTP 400 instead of
+  being stored.
+- Browser microphone recordings (`.webm`) are answered with a 400 on upload.
+  They were stored before but never picked up by the voice loader.
+
+### Upgrading
+
+- Home Assistant (Wyoming), OpenClaw and other `POST /v1/audio/speech`
+  clients: nothing to do.
+- Scripts that upload or delete voices over REST: add
+  `-H "Authorization: Bearer <token>"`.
+- The token: either set `POCKET_TTS_UI_TOKEN` yourself, or read the generated
+  one from the config directory, e.g.
+  `docker exec polyglot-tts cat /app/config/ui_token`. Mount `/app/config`
+  (the compose example uses a named volume) so it survives re-creating the
+  container; otherwise a new token is generated for each new container.
+
 ## [0.9.0] – 2026-11-14
 
 ### Changed

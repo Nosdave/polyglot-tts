@@ -24,23 +24,84 @@ Three tabs:
 
 ## Authentication
 
-By default the UI is **open** (LAN-only, like the rest of the server).
+Viewing and listening are open: the page itself, the dashboard, the voice
+list, the settings view and the test player need no login. **Changing
+anything needs the management token** — adding or deleting a voice, saving
+settings or the pronunciation dictionary, storing a HuggingFace token,
+restarting.
 
-To require a token, set:
+### Where the token comes from
 
+- **Generated (default).** On first start the server creates a random token
+  and stores it as `ui_token` next to the settings file (default
+  `/app/config/ui_token`, readable only by the container user). The log
+  shows the path, not the value:
+
+  ```
+  Management token: stored in /app/config/ui_token (mode 0600). …
+  ```
+
+  Read it with:
+
+  ```bash
+  docker exec polyglot-tts cat /app/config/ui_token
+  ```
+
+  Mount `/app/config` (see below) so the token survives re-creating the
+  container. To get a new token, delete the file and restart.
+
+- **Your own.** Set `POCKET_TTS_UI_TOKEN` — it takes precedence over the
+  file. Use a long random value, e.g. `openssl rand -hex 32`.
+
+  ```
+  POCKET_TTS_UI_TOKEN=<long random value>
+  ```
+
+- If the config directory is not writable and no token is set, the server
+  generates a token for that run only and prints it once in the log.
+
+### Logging in
+
+Click **Login** in the header (the dialog also opens by itself when you try
+a management action), paste the token, confirm. The browser remembers it
+(localStorage) until you click **Logout**. If the token changes on the
+server, the page drops the stored one and asks again.
+
+### Using the token from scripts
+
+Send it as a Bearer header:
+
+```bash
+curl -X POST http://<host>:10201/api/ui/restart \
+  -H "Authorization: Bearer <token>"
 ```
-POCKET_TTS_UI_TOKEN=your-secret-here
-```
 
-When set, the `/ui` page and the `/api/ui/*` endpoints require the token
-(sent as an `X-UI-Token` header; the page prompts for it and remembers it
-in your browser). 
+The header `X-UI-Token: <token>` and the query parameter `?token=<token>`
+of earlier versions are still accepted. Prefer the header: a token in a URL
+ends up in browser history and proxy logs.
 
-> **Scope of the token:** it gates the UI page and the settings / HF-token /
-> restart / status API. It does **not** gate the `/v1/audio/*` integration
-> API (voice upload/delete/synthesis), which stays open like the rest of
-> the OpenAI-Speech surface. For full lockdown, put the server behind a
-> reverse proxy with auth (see below).
+### What needs the token
+
+| Route | Token |
+|---|---|
+| Wyoming (`:10200`) | no |
+| `POST /v1/audio/speech`, `POST /v1/text/normalize` | no |
+| `GET` — `/health`, `/v1/audio/voices`, `/v1/audio/languages`, `/ui`, `/api/ui/status`, `/api/ui/config`, `/api/ui/replacements` | no |
+| `POST /v1/audio/voices`, `DELETE /v1/audio/voices/{name}` | **yes** |
+| `POST /api/ui/config`, `POST /api/ui/replacements`, `POST /api/ui/restart` | **yes** |
+| `GET /api/ui/session` (token check used by the login) | **yes** |
+
+Any other request that is not a `GET` is rejected without a token as well.
+
+> **Upgrading from 0.9.0 or older:** the management routes above were open
+> (or, with `POCKET_TTS_UI_TOKEN` set, only `/api/ui/*` was protected). After
+> the upgrade they return 401 until the token is sent. Home Assistant,
+> OpenClaw and other synthesis clients need no change.
+
+> **Scope:** the token protects *changes*. Synthesis and the read-only
+> routes are reachable by everyone who can reach the port. If that is not
+> acceptable on your network, put the server behind a reverse proxy with
+> authentication (see below).
 
 ## Microphone recording needs a secure context
 

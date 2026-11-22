@@ -4,12 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Polyglot TTS</title>
-  <link rel="stylesheet" href="/ui/static/style.css?v=082" />
+  <link rel="stylesheet" href="/ui/static/style.css?v=091" />
 </head>
 <body>
   <header>
     <h1>🎙️ Polyglot TTS</h1>
     <span id="version" class="muted"></span>
+    <span id="auth-box">
+      <span id="auth-state" class="muted"></span>
+      <button id="login-btn">Login</button>
+      <button id="logout-btn" hidden>Logout</button>
+    </span>
   </header>
 
   <nav id="tabs">
@@ -18,11 +23,19 @@
     <button data-tab="settings">Settings</button>
   </nav>
 
-  <!-- token gate -->
+  <!-- login: only management actions need it; viewing and listening do not -->
   <section id="token-gate" hidden>
-    <p>This server requires a UI token.</p>
-    <input id="token-input" type="password" placeholder="UI token" />
-    <button id="token-save">Unlock</button>
+    <h3>Login</h3>
+    <p>Changing voices, settings or the dictionary and restarting need the
+      management token. Dashboard, voice list and the test player work
+      without it.</p>
+    <p id="token-hint" class="muted"></p>
+    <div class="row">
+      <input id="token-input" type="password" placeholder="Management token"
+             autocomplete="off" />
+      <button id="token-save">Login</button>
+      <button id="token-cancel">Cancel</button>
+    </div>
     <p id="token-error" class="error"></p>
   </section>
 
@@ -136,6 +149,6 @@
     </section>
   </main>
 
-  <script src="/ui/static/app.js?v=083"></script>
+  <script src="/ui/static/app.js?v=091"></script>
 </body>
 </html>

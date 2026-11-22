@@ -33,6 +33,22 @@ AUDIO_EXT = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".aac", ".opus"}
 # via ffmpeg before encoding.
 _NATIVE_EXT = {".wav", ".flac", ".ogg", ".mp3"}
 
+# Demuxers ffmpeg may use for a voice file: the containers behind AUDIO_EXT
+# (m4a is "mov", opus is "ogg"). ffmpeg picks the demuxer from the content,
+# not the file name — without this list a file named *.m4a could be a
+# playlist or script format that pulls in other files or URLs.
+_FFMPEG_INPUT_FORMATS = "wav,mp3,flac,ogg,aac,mov"
+
+
+def _ffmpeg_input_args(path: Path) -> list[str]:
+    """Input side of every ffmpeg call on a voice file: local files only
+    (no network or other protocols), audio containers only."""
+    return [
+        "-protocol_whitelist", "file",
+        "-format_whitelist", _FFMPEG_INPUT_FORMATS,
+        "-i", f"file:{path}",
+    ]
+
 
 def ensure_decodable(path: Path) -> tuple[Path, bool]:
     """Return a path that pocket-tts/soundfile can open.
@@ -61,7 +77,8 @@ def ensure_decodable(path: Path) -> tuple[Path, bool]:
     tmp = Path(tmp_name)
     try:
         subprocess.run(
-            [ffmpeg, "-y", "-i", str(path), "-ar", "24000", "-ac", "1", str(tmp)],
+            [ffmpeg, "-y", *_ffmpeg_input_args(path),
+             "-ar", "24000", "-ac", "1", str(tmp)],
             check=True,
             capture_output=True,
         )
@@ -100,7 +117,7 @@ def normalize_loudness(path: Path) -> tuple[Path, bool]:
     tmp = Path(tmp_name)
     try:
         subprocess.run(
-            [ffmpeg, "-y", "-i", str(path),
+            [ffmpeg, "-y", *_ffmpeg_input_args(path),
              "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
              "-ar", "24000", "-ac", "1", str(tmp)],
             check=True, capture_output=True,

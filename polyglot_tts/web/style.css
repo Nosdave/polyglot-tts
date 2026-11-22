@@ -175,3 +175,19 @@ code { background: #0d1117; padding: 1px 5px; border-radius: 4px; }
 .repl-row .repl-del { flex: 0 0 auto; padding: 6px 10px; font-weight: 700;
   background: transparent; border: 1px solid var(--border); color: var(--muted); }
 .repl-row .repl-del:hover { color: var(--danger); border-color: var(--danger); }
+
+/* login (management token) */
+#auth-box { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
+#auth-box button { padding: 4px 12px; font-size: 0.85rem; }
+#auth-box button[hidden] { display: none; }
+#token-gate {
+  margin: 16px 20px 0;
+  max-width: 840px;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+}
+#token-gate[hidden] { display: none; }
+#token-gate h3 { margin: 0 0 8px; font-size: 1rem; }
+#token-gate input { flex: 1; min-width: 220px; }

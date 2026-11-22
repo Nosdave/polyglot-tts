@@ -51,6 +51,9 @@ polyglot_tts/
 ├── wyoming_handler.py # Wyoming event handler (streaming text-IN, drain-loop,
 │                      #   Lingua LID, Mukser-Fix) — carried over, production-proven
 ├── http_server.py     # FastAPI OpenAI-Speech endpoint (TCP 10201) + voice REST API
+├── auth.py            # management token (env or generated file) + default-deny
+│                      #   middleware: every non-GET route needs it except
+│                      #   /v1/audio/speech and /v1/text/normalize
 ├── voice_loader.py    # startup voice loading + ensure_decodable() (ffmpeg transcode)
 ├── voice_watcher.py   # watchdog Observer on voices-extra/ → auto-embed
 ├── text_norm.py       # markdown strip + units + num2words (de/en/fr)

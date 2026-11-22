@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 
@@ -174,8 +175,14 @@ def _read_file() -> dict:
 def apply_overlay() -> None:
     """Overlay the settings file onto os.environ. Call once, early at startup."""
     data = _read_file()
-    for k, v in data.items():
-        os.environ[k] = str(v)
+    for k, v in list(data.items()):
+        try:
+            os.environ[k] = str(v)
+        except ValueError as e:
+            # e.g. an embedded NUL — skip the key instead of failing every boot.
+            _LOGGER.error("Ignoring stored setting %s from %s: %s",
+                          k, config_path(), e)
+            del data[k]
     if data:
         # Don't log the HF token value.
         loud = {k: ("***" if k == "HF_TOKEN" else v) for k, v in data.items()}
@@ -202,6 +209,87 @@ def _normalize_languages(value: str) -> str:
         seen.add(lang)
         out.append(ckpt)
     return ",".join(out)
+
+
+# ── Validation of free-text values ──────────────────────────────────────────
+# Two editable keys reach code that treats a string as a location:
+# POCKET_TTS_LANGUAGES becomes a config file name inside pocket-tts, and
+# POCKET_TTS_VOICE is handed to its voice loader, which also accepts paths and
+# URLs. Both are therefore restricted to known names — here for API writes,
+# and in the dispatcher for whatever the environment holds at startup.
+
+# A checkpoint is a bare name like "german_24l" or "english_2026-10": no dots,
+# no path separators, nothing that could leave the config directory.
+_CHECKPOINT_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+
+_MAX_VALUE_CHARS = 1024
+
+
+def known_checkpoints() -> set[str]:
+    """Names of the language checkpoints the installed pocket-tts ships."""
+    from .core import available_checkpoints
+    return {c["checkpoint"] for c in available_checkpoints()}
+
+
+def filter_checkpoints(names) -> tuple[list[str], list[str]]:
+    """Split checkpoint names into (accepted, rejected).
+
+    Accepted = a bare name (see _CHECKPOINT_NAME_RE) that is also one of the
+    installed checkpoints. Paths, URLs, "..", dotted or unknown names are
+    rejected.
+    """
+    known = known_checkpoints()
+    ok: list[str] = []
+    bad: list[str] = []
+    for name in names:
+        name = str(name).strip()
+        if not name:
+            continue
+        if _CHECKPOINT_NAME_RE.fullmatch(name) and name in known:
+            ok.append(name)
+        else:
+            bad.append(name)
+    return ok, bad
+
+
+def validate_updates(updates: dict, known_voices) -> dict:
+    """Check values coming from the API before they are persisted.
+
+    Returns a cleaned copy holding only EDITABLE_KEYS. Raises ValueError with
+    a message fit for the client if a value is not acceptable:
+      - values must be scalars, of bounded length, without control characters
+      - POCKET_TTS_LANGUAGES: known checkpoint names only
+      - POCKET_TTS_VOICE: one of `known_voices` (built-in + loaded custom)
+    An empty value still means "remove the key".
+    """
+    known_voices = set(known_voices)
+    clean: dict = {}
+    for key, value in updates.items():
+        if key not in EDITABLE_KEYS:
+            continue
+        if value is None or value == "":
+            clean[key] = value
+            continue
+        if not isinstance(value, (str, int, float)):
+            raise ValueError(f"{key}: value must be a string, number or boolean")
+        text = str(value)
+        if len(text) > _MAX_VALUE_CHARS or any(
+                ord(c) < 32 or ord(c) == 127 for c in text):
+            raise ValueError(f"{key}: value is too long or contains control characters")
+        if key == "POCKET_TTS_LANGUAGES":
+            ok, bad = filter_checkpoints(text.split(","))
+            if bad:
+                raise ValueError(
+                    f"{key}: unknown language checkpoint(s): "
+                    + ", ".join(repr(b[:64]) for b in bad)
+                    + " — use names from the checkpoint list")
+            text = ",".join(ok)
+        elif key == "POCKET_TTS_VOICE" and text not in known_voices:
+            raise ValueError(
+                f"{key}: unknown voice {text[:64]!r} — pick a built-in voice "
+                "or one loaded from voices-extra (names only, no paths or URLs)")
+        clean[key] = text
+    return clean
 
 
 def save_settings(updates: dict) -> dict:

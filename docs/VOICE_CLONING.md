@@ -67,7 +67,13 @@ same; downstream callers don't need to reconnect.
 ## Programmatic management (REST API)
 
 The same operations are available via HTTP on the OpenAI-Speech port
-(`:10201` by default):
+(`:10201` by default). Listing is open; upload and delete need the
+management token (see [WEB_UI.md](WEB_UI.md#authentication) for where to find
+it):
+
+```bash
+TOKEN=$(docker exec polyglot-tts cat /app/config/ui_token)
+```
 
 ### List voices
 ```bash
@@ -77,14 +83,20 @@ curl http://polyglot-tts:10201/v1/audio/voices
 ### Upload a new voice
 ```bash
 curl -X POST http://polyglot-tts:10201/v1/audio/voices \
+  -H "Authorization: Bearer $TOKEN" \
   -F "file=@my_voice.wav" \
   -F "name=aria"
 ```
 
 ### Delete a voice
 ```bash
-curl -X DELETE http://polyglot-tts:10201/v1/audio/voices/aria
+curl -X DELETE http://polyglot-tts:10201/v1/audio/voices/aria \
+  -H "Authorization: Bearer $TOKEN"
 ```
+
+The file must have one of the supported audio extensions (`.wav`, `.mp3`,
+`.ogg`, `.flac`, `.m4a`, `.aac`, `.opus`); at most 100 voices can be created
+through the API.
 
 Upload returns immediately with HTTP 201 and `status: queued`. Polling
 `/v1/audio/voices` shortly after will show the new voice once embedding
