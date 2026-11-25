@@ -60,9 +60,12 @@ services:
       POCKET_TTS_LANGUAGES: "english_2026-10,german_24l,french_24l"
       POCKET_TTS_VOICE: "eve"
       POCKET_TTS_DEVICE: "cuda"
-      # Uncomment to require a token for the web UI (recommended if the
-      # port is reachable beyond a single-user LAN):
-      # POCKET_TTS_UI_TOKEN: "change-me"
+      # Management password (voice upload/delete, settings, restart).
+      # Unset = open http://<host>:10201/ui within 10 minutes after the
+      # start and set it there (stored as a hash in the config volume).
+      # During those minutes the first visitor sets it — to rule that out,
+      # set the password here instead:
+      # POCKET_TTS_UI_TOKEN: "<your password>"
     volumes:
       - ./voices-extra:/app/voices-extra
       # Named volume (NOT a host bind) so it inherits the image's UID-10001

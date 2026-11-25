@@ -4,6 +4,115 @@ All notable changes will be documented here. Semantic versioning.
 
 ## [Unreleased]
 
+## [0.9.1] – 2026-11-23
+
+Security release. **Synthesis clients are not affected** — Wyoming,
+`POST /v1/audio/speech` and all read-only routes work without credentials, as
+before. **Managing the server now needs a password** — see *Upgrading* below.
+
+### Security
+
+- **The management API required no authentication by default.** Anyone who
+  could reach the HTTP port could upload and delete voices, change settings,
+  store a HuggingFace token and restart the server; `POCKET_TTS_UI_TOKEN` was
+  optional and never covered `POST`/`DELETE /v1/audio/voices`. Every
+  state-changing route now requires the management password:
+  `POST /v1/audio/voices`, `DELETE /v1/audio/voices/{name}`,
+  `POST /api/ui/config`, `POST /api/ui/replacements`, `POST /api/ui/restart`,
+  `POST /api/ui/password`. The check is default-deny: any request that is not
+  `GET`/`HEAD`/`OPTIONS` is rejected unless it is one of the listed open
+  routes (`POST /v1/audio/speech`, `POST /v1/text/normalize`, and the
+  self-guarded first-run `POST /api/ui/setup`), and the rejection happens
+  before the request body is read.
+- **Never open.** Until a password exists, the management routes answer 401.
+  A password set in the browser is stored only as a salted scrypt hash
+  (`ui_password.json`, mode 0600, next to `settings.json`). Comparisons are
+  constant-time, failed attempts are limited (10 per minute, process-wide),
+  and no password is ever logged.
+- **Settings could point the model loader at arbitrary locations.**
+  `POCKET_TTS_LANGUAGES` and `POCKET_TTS_VOICE` were free text that ended up
+  as a config file path respectively a voice source (which may be a URL) in
+  pocket-tts. Both now only accept known names — installed language
+  checkpoints, and built-in or loaded voices. The same check runs at startup
+  on whatever the settings file or the environment holds: invalid entries are
+  logged and skipped, and the defaults are used instead of failing to start.
+- **Voice upload stored any file extension.** The stored suffix must now be
+  one of the audio extensions the loader handles; anything else is a 400.
+  Uploads are capped at 100 voices (HTTP 409 beyond that; dropping files into
+  `voices-extra/` is not limited).
+- **ffmpeg ran with all protocols and formats enabled** on voice files. It is
+  now restricted to local files and to the audio containers behind the
+  supported extensions (WAV, MP3, FLAC, Ogg, AAC, MP4/M4A).
+- **Web UI:** values that come from clients (voice names, last-synthesis
+  fields, error texts) are inserted as text, and the page is served with a
+  Content-Security-Policy — the page now holds the management password, so
+  injected markup must not be able to run there.
+
+### Added
+
+- **Set the password in the browser.** On a server without a password the web
+  UI shows **Set password** (password + repeat, at least 10 characters,
+  show/hide). This first-run setup (`POST /api/ui/setup`) works only while no
+  password exists and only for 10 minutes after the server has started;
+  afterwards it answers 403 until the next restart. The window length is
+  `POCKET_TTS_UI_SETUP_MINUTES` (default 10, `0` disables setup in the
+  browser). **Trade-off:** during that window the first client to open the
+  UI sets the password. If that is not acceptable on your network, set
+  `POCKET_TTS_UI_TOKEN` instead — then nothing can be set from a browser.
+- **Login / Logout / Change password** in the web UI. The forms are real
+  forms with `autocomplete` hints and a fixed user name `admin`, so password
+  managers on phone and desktop can save and fill the entry; they are sized
+  for a 360 px wide screen. After login the browser keeps the password in
+  localStorage and sends it as `Authorization: Bearer <password>`. Dashboard,
+  voice list, settings view and the test player work without logging in.
+- `POST /api/ui/password` (change; needs login and the current password),
+  `GET /api/ui/session` (200 with the valid password, 401 otherwise, 429
+  when rate-limited).
+- `auth_mode` (`setup` / `password` / `env` / `closed` / `memory`),
+  `setup_seconds_left` and `min_password_length` in `GET /api/ui/status`.
+- Forgotten password: delete `ui_password.json` in the config directory and
+  restart — the setup window opens again.
+
+### Changed
+
+- `POCKET_TTS_UI_TOKEN` keeps working and takes precedence: if it is set,
+  its value is the password, and neither setup nor change are offered in the
+  browser. With it set, the UI page and the read-only `GET /api/ui/*` routes
+  used to require the token as well. They are open now (they expose nothing
+  that `/health` and `/v1/audio/voices` did not), so the page can load and
+  offer the login. To keep the page itself private, put a reverse proxy with
+  authentication in front.
+- API clients send the password as `Authorization: Bearer <password>`. The
+  former `X-UI-Token` header and the `?token=` query parameter are still
+  accepted; the UI no longer needs a `?token=` URL and removes it from the
+  address bar if an old bookmark carries one.
+- A password set in the browser must be plain ASCII (letters, digits, common
+  symbols): it travels in an HTTP header, where browsers and command-line
+  clients disagree on the encoding of anything else.
+- If the config directory is not writable, no password can be stored: the
+  server then generates a one-time password for that run and logs it once.
+- A setting that the server cannot use (unknown checkpoint, unknown default
+  voice, value with control characters) is rejected with HTTP 400 instead of
+  being stored.
+- Browser microphone recordings (`.webm`) are answered with a 400 on upload.
+  They were stored before but never picked up by the voice loader.
+- Narrow screens: the voice-slot rows and the language grid wrap, so the
+  page keeps the width of a phone screen on every tab.
+
+### Upgrading
+
+- Home Assistant (Wyoming), OpenClaw and other `POST /v1/audio/speech`
+  clients: nothing to do.
+- After the first start of the new version, open `http://<host>:10201/ui`
+  within 10 minutes and set a password (or set `POCKET_TTS_UI_TOKEN` before
+  starting). Missed the window? Restart the server. Until a password exists,
+  voices and settings cannot be changed.
+- Mount `/app/config` (the compose example uses a named volume) so the
+  password hash survives re-creating the container; otherwise every new
+  container starts without a password and offers the setup again.
+- Scripts that upload or delete voices over REST: add
+  `-H "Authorization: Bearer <password>"`.
+
 ## [0.9.0] – 2026-11-14
 
 ### Changed

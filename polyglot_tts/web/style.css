@@ -175,3 +175,36 @@ code { background: #0d1117; padding: 1px 5px; border-radius: 4px; }
 .repl-row .repl-del { flex: 0 0 auto; padding: 6px 10px; font-weight: 700;
   background: transparent; border: 1px solid var(--border); color: var(--muted); }
 .repl-row .repl-del:hover { color: var(--danger); border-color: var(--danger); }
+
+/* password: login, first-run setup, change */
+header { flex-wrap: wrap; }
+#auth-box { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
+#auth-box button { padding: 8px 14px; font-size: 0.9rem; min-height: 40px; }
+#auth-panel {
+  margin: 16px 20px 0;
+  max-width: 840px;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+}
+#auth-panel[hidden], .auth-form[hidden], button[hidden] { display: none; }
+.auth-form { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+.auth-form h3 { margin: 0 0 4px; font-size: 1rem; }
+.auth-form p { margin: 0; }
+.auth-form label { font-size: 0.9rem; margin-top: 4px; }
+/* 16px text keeps phones from zooming into the field; 44px = finger-sized */
+.auth-form input { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+.auth-form input[readonly] { color: var(--muted); }
+.auth-form button, .auth-actions button { min-height: 44px; padding: 10px 16px; }
+.pw-row { display: flex; gap: 8px; align-items: stretch; }
+.auth-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+@media (max-width: 480px) {
+  #auth-panel { margin: 12px 12px 0; }
+  .auth-actions button[type="submit"] { flex: 1 1 100%; }
+  /* keep the page at the width of a phone screen on every tab — a wider
+     page gets zoomed out, forms included */
+  .slot, .lang-opt { flex-wrap: wrap; }
+  .lang-opt { max-width: 100%; }
+}

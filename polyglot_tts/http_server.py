@@ -9,8 +9,8 @@ Endpoints
 ---------
 GET  /health
 GET  /v1/audio/voices
-POST /v1/audio/voices            multipart: file=<wav>, name=<name>
-DELETE /v1/audio/voices/{name}
+POST /v1/audio/voices            multipart: file=<wav>, name=<name>   (token)
+DELETE /v1/audio/voices/{name}                                        (token)
 GET  /v1/audio/languages
 POST /v1/audio/speech            JSON: {model, input, voice, response_format,
                                        language?, instructions?}
@@ -28,6 +28,11 @@ ffmpeg fallback. `wav` and `pcm` skip transcoding.
 
 Streaming the response body is supported via chunked-transfer; clients may
 read audio as it's synthesized.
+
+Auth: synthesis and all GETs are open. Routes marked (token) change state and
+need the management password (`Authorization: Bearer <password>`), see
+auth.py. The app-wide middleware rejects every other non-GET request without
+it too.
 """
 
 from __future__ import annotations
@@ -40,11 +45,11 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import __version__
+from . import __version__, auth
 from .core import (
     BCP47_TO_CHECKPOINT,
     CHANNELS,
@@ -74,6 +79,7 @@ _LOGGER = logging.getLogger(__name__)
 
 MAX_INPUT_CHARS = 4000        # cap synth input — prevents GPU/CPU DoS
 MAX_VOICE_UPLOAD_BYTES = 50 * 1024 * 1024   # 50 MB hard cap for voice uploads
+MAX_EXTRA_VOICES = 100        # cap on voices in voices-extra/ created via upload
 
 
 class SpeechRequest(BaseModel):
@@ -326,6 +332,12 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
         version=__version__,
         description="OpenAI-Speech-compatible HTTP endpoint for Polyglot TTS.",
     )
+    # Default-deny for state-changing methods: only synthesis, the
+    # normalization preview and the self-guarded first-run setup stay open
+    # (auth.OPEN_UNSAFE_ROUTES). Covers the /api/ui/* routes mounted onto this
+    # app later as well.
+    app.add_middleware(auth.ManagementAuthMiddleware)
+    auth.announce()
 
     @app.get("/health")
     async def health() -> dict:
@@ -361,7 +373,8 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
             "languages": [core.checkpoint_bcp47[c] for c in core.models],
         }
 
-    @app.post("/v1/audio/voices", status_code=201)
+    @app.post("/v1/audio/voices", status_code=201,
+              dependencies=[Depends(auth.require_token)])
     async def add_voice(
         file: UploadFile = File(...),
         name: str | None = Form(None),
@@ -395,9 +408,24 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
                 raise HTTPException(400, f"Unknown language tag '{language}' "
                                          "(use a bcp47 code like de/en/fr).")
             lang_tag = f".{language}"
+        # Only audio extensions the loader handles may be written — the
+        # suffix comes from the client's filename and must not create
+        # arbitrary file types in voices-extra/.
+        from .voice_loader import AUDIO_EXT, group_voice_files
+        suffix = Path(file.filename or ".wav").suffix.lower() or ".wav"
+        if suffix not in AUDIO_EXT:
+            raise HTTPException(
+                400, f"Unsupported file type '{suffix[:16]}' "
+                     f"(allowed: {', '.join(sorted(AUDIO_EXT))})")
+        # Bound the number of uploaded voices (each one holds an embedding per
+        # language in memory). Adding a file to an existing voice is fine.
+        existing = group_voice_files(voices_extra_dir)
+        if name not in existing and len(existing) >= MAX_EXTRA_VOICES:
+            raise HTTPException(
+                409, f"Voice limit reached ({MAX_EXTRA_VOICES}) — "
+                     "delete a voice first")
         # Stream upload to disk with a hard size cap. Doesn't buffer the
         # whole payload in RAM — protects 4 GB hosts (HA Green / Pi).
-        suffix = Path(file.filename or ".wav").suffix.lower() or ".wav"
         target = voices_extra_dir / f"{name}{lang_tag}{suffix}"
         # Resolve final path is under voices-extra (belt-and-braces vs symlinks)
         try:
@@ -434,7 +462,8 @@ def build_app(core: PolyglotCore, voices_extra_dir: Path | None) -> FastAPI:
         return {"name": name, "path": str(target),
                 "status": "queued — embedding will start in <2s"}
 
-    @app.delete("/v1/audio/voices/{name}", status_code=204)
+    @app.delete("/v1/audio/voices/{name}", status_code=204,
+                dependencies=[Depends(auth.require_token)])
     async def delete_voice(name: str) -> Response:
         if voices_extra_dir is None:
             raise HTTPException(503, "Voice management is disabled")

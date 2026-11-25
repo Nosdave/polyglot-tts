@@ -22,6 +22,7 @@
 - 🐳 **Single Docker image** — `linux/amd64` + `linux/arm64`, CPU + CUDA variants on `ghcr.io`.
 - 🎛️ **Fully env-driven** — every behaviour is a single environment variable; no YAML editing required.
 - 🖥️ **Built-in web UI** — dashboard, voice management (drag-drop / mic / delete), and settings (incl. HF token) at `http://<host>:10201/ui`. See [docs/WEB_UI.md](docs/WEB_UI.md).
+- 🔑 **Management password** — speaking needs no credentials; changing voices or settings does. Set it in the browser on first start. See [Management password](#management-password).
 
 ---
 
@@ -61,6 +62,39 @@ curl -X POST http://localhost:10201/v1/audio/speech \
   -d '{"model":"polyglot-1","input":"Bonjour le monde","voice":"eve","response_format":"mp3"}' \
   --output hello.mp3
 ```
+
+### Management password
+
+Synthesis (Wyoming, `POST /v1/audio/speech`) and all read-only routes are open
+— no credentials, no change for Home Assistant or OpenClaw. Everything that
+changes the server (voice upload/delete, settings, restart) needs the
+management password.
+
+**First start:** open `http://<host>:10201/ui` within 10 minutes — the page
+shows **Set password**. Choose one (at least 10 characters) and you are logged
+in; your browser or password manager can save it under the user name `admin`.
+Until a password exists, the management functions stay closed. Missed the 10
+minutes? Restart the server.
+
+> During those 10 minutes whoever opens the UI first sets the password. On a
+> network where that matters, set `POCKET_TTS_UI_TOKEN=<password>` instead —
+> then the password comes from the environment and cannot be set in a browser.
+
+Scripts send the password as a header:
+
+```bash
+curl -X POST http://localhost:10201/v1/audio/voices \
+  -H "Authorization: Bearer <password>" \
+  -F "file=@my_voice.wav" -F "name=aria"
+```
+
+Forgotten the password? Delete `ui_password.json` in the config directory
+(`/app/config`) and restart. Details:
+[docs/WEB_UI.md](docs/WEB_UI.md#authentication).
+
+> **Upgrading from 0.9.0 or older:** management calls that used to work
+> without credentials now return 401 until a password is set and sent.
+> Synthesis clients are unaffected.
 
 ---
 

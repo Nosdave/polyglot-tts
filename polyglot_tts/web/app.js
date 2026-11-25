@@ -1,11 +1,52 @@
 "use strict";
 
-// ── token handling ────────────────────────────────────────────────────────
-let TOKEN = localStorage.getItem("polyglot_ui_token") || "";
+// Everything the server sends is inserted as text, never as markup: voice
+// names, the last-synthesis fields and error details can come from any client
+// on the network, and this page holds the management token.
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ── password (login, first-run setup, change) ─────────────────────────────
+// Reading and listening work without logging in. Changing anything (voices,
+// settings, dictionary, restart) needs the management password: after login
+// it is kept in localStorage and sent as "Authorization: Bearer <password>".
+// While the server has no password yet it offers "Set password" instead of
+// "Login" for a few minutes after its start (see docs/WEB_UI.md).
+const TOKEN_KEY = "polyglot_ui_token";   // key kept so existing logins survive
+let TOKEN = "";
+let LOGGED_IN = false;
+let AUTH_MODE = "";        // from /api/ui/status: setup | password | env | memory | closed
+let SETUP_LEFT = 0;        // seconds the setup window stays open
+let MIN_PW = 10;
+
+function storedToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
+}
+function storeToken(tok) {
+  try {
+    if (tok) localStorage.setItem(TOKEN_KEY, tok);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch (e) { /* private mode: the login lives for this page only */ }
+}
+TOKEN = storedToken();
+
+// Old bookmarks may still carry "?token=…". Take it over once and remove it
+// from the address bar; this page never builds such URLs itself.
+(function adoptUrlToken() {
+  let url;
+  try { url = new URL(window.location.href); } catch (e) { return; }
+  const tok = url.searchParams.get("token");
+  if (tok === null) return;
+  url.searchParams.delete("token");
+  history.replaceState(null, "", url.pathname + url.search + url.hash);
+  if (tok && !TOKEN) TOKEN = tok;
+})();
 
 function authHeaders(extra) {
   const h = extra || {};
-  if (TOKEN) h["X-UI-Token"] = TOKEN;
+  if (TOKEN) h["Authorization"] = "Bearer " + TOKEN;
   return h;
 }
 
@@ -14,22 +55,238 @@ async function api(path, opts) {
   opts.headers = authHeaders(opts.headers);
   const res = await fetch(path, opts);
   if (res.status === 401) {
-    showTokenGate();
+    const hadToken = !!TOKEN;
+    setLoggedOut();
+    showAuth(hadToken ? "The stored password is no longer valid." : "");
     throw new Error("unauthorized");
   }
   return res;
 }
 
-function showTokenGate() {
-  document.getElementById("token-gate").hidden = false;
+async function errorDetail(res) {
+  try { const j = await res.json(); if (j && typeof j.detail === "string") return j.detail; }
+  catch (e) { /* no JSON body */ }
+  return "Error " + res.status;
 }
 
-document.getElementById("token-save").onclick = () => {
-  TOKEN = document.getElementById("token-input").value.trim();
-  localStorage.setItem("polyglot_ui_token", TOKEN);
-  document.getElementById("token-gate").hidden = true;
-  init();
-};
+// true / false = the server accepted / rejected the password; "limited" =
+// too many failed attempts; null = no answer.
+async function checkPassword(pw) {
+  try {
+    const r = await fetch("/api/ui/session", { headers: { "Authorization": "Bearer " + pw } });
+    if (r.status === 200) return true;
+    if (r.status === 401) return false;
+    if (r.status === 429) return "limited";
+    return null;
+  } catch (e) { return null; }
+}
+
+// The password travels in an HTTP header, so it is limited to plain ASCII.
+function passwordProblem(pw, repeat) {
+  if (pw.length < MIN_PW) return `At least ${MIN_PW} characters.`;
+  if (!/^[\x20-\x7E]+$/.test(pw) || pw !== pw.trim()) {
+    return "Letters, digits and common symbols only (no umlauts, accents or emoji), " +
+      "no space at the start or end.";
+  }
+  if (pw !== repeat) return "The two passwords differ.";
+  return "";
+}
+
+function noPasswordYet() { return AUTH_MODE === "setup" || AUTH_MODE === "closed"; }
+
+function renderAuth() {
+  const el = (id) => document.getElementById(id);
+  el("auth-state").textContent = LOGGED_IN ? "Logged in"
+    : (noPasswordYet() ? "No password set" : "Read-only");
+  el("login-btn").textContent = noPasswordYet() ? "Set password" : "Login";
+  el("login-btn").hidden = LOGGED_IN;
+  el("logout-btn").hidden = !LOGGED_IN;
+  document.body.classList.toggle("logged-in", LOGGED_IN);
+  // settings tab: password card
+  el("settings-login-btn").textContent = el("login-btn").textContent;
+  el("settings-login-btn").hidden = LOGGED_IN;
+  el("settings-logout-btn").hidden = !LOGGED_IN;
+  el("change-form").hidden = !(LOGGED_IN && AUTH_MODE === "password");
+  let note = "Changing voices or settings needs the management password.";
+  if (AUTH_MODE === "env") {
+    note = "The password is set on the server through POCKET_TTS_UI_TOKEN; change it there.";
+  } else if (AUTH_MODE === "memory") {
+    note = "The server cannot store a password (config directory not writable); " +
+      "it uses a one-time password from its log.";
+  } else if (AUTH_MODE === "password") {
+    note = LOGGED_IN ? "Change the management password here."
+      : "Log in to change the management password.";
+    note += " Forgotten? Delete ui_password.json in the server's config directory " +
+      "and restart the server, then set a new one here.";
+  } else if (noPasswordYet()) {
+    note = "No management password has been set yet.";
+  }
+  el("password-note").textContent = note;
+}
+
+function setLoggedIn(pw) {
+  TOKEN = pw;
+  LOGGED_IN = true;
+  storeToken(pw);
+  renderAuth();
+}
+
+function setLoggedOut() {
+  TOKEN = "";
+  LOGGED_IN = false;
+  storeToken("");
+  renderAuth();
+}
+
+function loginHint() {
+  if (AUTH_MODE === "env") {
+    return "The password is the value of POCKET_TTS_UI_TOKEN set for this server.";
+  }
+  if (AUTH_MODE === "memory") {
+    return "The server could not store a password; it wrote a one-time password " +
+      "to its log at start.";
+  }
+  return "Forgotten? Delete ui_password.json in the server's config directory and " +
+    "restart the server to set a new one.";
+}
+
+// Show the form that fits the server state: set a password, log in, or the
+// notice that setup is not possible right now.
+function showAuth(message) {
+  const el = (id) => document.getElementById(id);
+  const which = AUTH_MODE === "setup" ? "setup-form"
+    : (AUTH_MODE === "closed" ? "setup-closed" : "login-form");
+  ["login-form", "setup-form", "setup-closed"].forEach((id) => { el(id).hidden = id !== which; });
+  if (which === "setup-form") {
+    const mins = Math.max(1, Math.ceil(SETUP_LEFT / 60));
+    el("setup-hint").textContent = `Possible for about ${mins} more minute(s) after ` +
+      "the server start. Whoever sets the password first controls the management " +
+      "functions — do it now.";
+    el("setup-error").textContent = message || "";
+  } else if (which === "login-form") {
+    el("login-hint").textContent = loginHint();
+    el("login-error").textContent = message || "";
+  }
+  const wasHidden = el("auth-panel").hidden;
+  el("auth-panel").hidden = false;
+  if (wasHidden) {
+    const first = el(which).querySelector('input[type="password"]');
+    if (first) first.focus();
+  }
+}
+
+function hideAuth() {
+  document.getElementById("auth-panel").hidden = true;
+  ["login-password", "setup-password", "setup-repeat"].forEach((id) => {
+    const input = document.getElementById(id);
+    input.value = "";
+    input.type = "password";
+  });
+  document.querySelectorAll("#auth-panel [data-toggle]").forEach((b) => {
+    b.setAttribute("aria-pressed", "false");
+    b.textContent = "Show";
+  });
+  ["login-error", "setup-error"].forEach((id) => { document.getElementById(id).textContent = ""; });
+}
+
+// Gate for every management action: opens login / setup when not logged in.
+function requireLogin() {
+  if (LOGGED_IN) return true;
+  showAuth(AUTH_MODE === "setup" ? "Set a password first."
+    : "Log in to change voices or settings.");
+  return false;
+}
+
+async function doLogin() {
+  const pw = document.getElementById("login-password").value.trim();
+  const err = document.getElementById("login-error");
+  if (!pw) { err.textContent = "Enter the password."; return; }
+  err.textContent = "Checking…";
+  const ok = await checkPassword(pw);
+  if (ok === true) { setLoggedIn(pw); hideAuth(); }
+  else if (ok === false) err.textContent = "Wrong password.";
+  else if (ok === "limited") err.textContent = "Too many failed attempts — wait a minute.";
+  else err.textContent = "Server not reachable — try again.";
+}
+
+async function doSetup() {
+  const pw = document.getElementById("setup-password").value;
+  const err = document.getElementById("setup-error");
+  const problem = passwordProblem(pw, document.getElementById("setup-repeat").value);
+  if (problem) { err.textContent = problem; return; }
+  err.textContent = "Saving…";
+  let r;
+  try {
+    r = await fetch("/api/ui/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw }),
+    });
+  } catch (e) { err.textContent = "Server not reachable — try again."; return; }
+  if (r.ok) {
+    AUTH_MODE = "password";
+    setLoggedIn(pw);
+    hideAuth();
+    return;
+  }
+  err.textContent = await errorDetail(r);
+  if (r.status === 403) refreshStatus();   // someone else was first, or the window is over
+}
+
+async function doChangePassword() {
+  const el = (id) => document.getElementById(id);
+  const st = el("change-status");
+  const current = el("change-current").value.trim();
+  const pw = el("change-new").value;
+  if (!requireLogin()) return;
+  if (!current) { st.textContent = "Enter the current password."; return; }
+  const problem = passwordProblem(pw, el("change-repeat").value);
+  if (problem) { st.textContent = problem; return; }
+  st.textContent = "Saving…";
+  let r;
+  try {
+    r = await api("/api/ui/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: current, new_password: pw }),
+    });
+  } catch (e) { st.textContent = "Not changed."; return; }
+  if (!r.ok) { st.textContent = await errorDetail(r); return; }
+  setLoggedIn(pw);                          // keep this browser logged in
+  ["change-current", "change-new", "change-repeat"].forEach((id) => { el(id).value = ""; });
+  st.textContent = "Password changed. Other devices have to log in again.";
+}
+
+[["login-form", doLogin], ["setup-form", doSetup], ["change-form", doChangePassword]]
+  .forEach(([id, handler]) => {
+    document.getElementById(id).addEventListener("submit", (e) => { e.preventDefault(); handler(); });
+  });
+document.querySelectorAll("[data-auth-cancel]").forEach((b) => { b.onclick = hideAuth; });
+document.getElementById("login-btn").onclick = () => showAuth("");
+document.getElementById("settings-login-btn").onclick = () => showAuth("");
+document.getElementById("logout-btn").onclick = () => { setLoggedOut(); hideAuth(); };
+document.getElementById("settings-logout-btn").onclick = () => { setLoggedOut(); hideAuth(); };
+
+// show / hide what was typed (one button can switch several fields)
+document.querySelectorAll("[data-toggle]").forEach((btn) => {
+  btn.onclick = () => {
+    const show = btn.getAttribute("aria-pressed") !== "true";
+    btn.dataset.toggle.split(",").forEach((id) => {
+      document.getElementById(id).type = show ? "text" : "password";
+    });
+    btn.setAttribute("aria-pressed", show ? "true" : "false");
+    btn.textContent = show ? "Hide" : "Show";
+  };
+});
+
+// On load: a stored password is only kept if the server still accepts it.
+async function restoreLogin() {
+  if (!TOKEN) { renderAuth(); return; }
+  const ok = await checkPassword(TOKEN);
+  if (ok === true) setLoggedIn(TOKEN);
+  else if (ok === false) setLoggedOut();
+  else renderAuth();          // no clear answer: keep it, stay read-only for now
+}
 
 // ── tabs ──────────────────────────────────────────────────────────────────
 document.querySelectorAll("#tabs button").forEach((btn) => {
@@ -48,18 +305,27 @@ async function refreshStatus() {
     if (!r.ok) return;
     const s = await r.json();
     document.getElementById("version").textContent = "v" + s.version;
+    const modeBefore = AUTH_MODE;
+    AUTH_MODE = s.auth_mode || "";
+    SETUP_LEFT = s.setup_seconds_left || 0;
+    MIN_PW = s.min_password_length || MIN_PW;
+    if (AUTH_MODE !== modeBefore) {
+      renderAuth();
+      // keep an open panel in line with the server (e.g. setup window over)
+      if (!LOGGED_IN && !document.getElementById("auth-panel").hidden) showAuth("");
+    }
     const langs = s.languages.map((l) => l.bcp47).join(", ") || "—";
     document.getElementById("status-box").innerHTML = `
-      <div class="kv"><span>Device</span><span>${s.device}</span></div>
-      <div class="kv"><span>Languages</span><span>${langs}</span></div>
-      <div class="kv"><span>Voices</span><span>${s.voice_count}</span></div>
-      <div class="kv"><span>Default voice</span><span>${s.default_voice}</span></div>
+      <div class="kv"><span>Device</span><span>${esc(s.device)}</span></div>
+      <div class="kv"><span>Languages</span><span>${esc(langs)}</span></div>
+      <div class="kv"><span>Voices</span><span>${esc(s.voice_count)}</span></div>
+      <div class="kv"><span>Default voice</span><span>${esc(s.default_voice)}</span></div>
       <div class="kv"><span>Uptime</span><span>${fmtUptime(s.uptime_s)}</span></div>
-      <div class="kv"><span>UI auth</span><span>${s.auth_enabled ? "on" : "off"}</span></div>`;
+      <div class="kv"><span>Management</span><span>${noPasswordYet() ? "no password set yet" : "password required"}</span></div>`;
     const t = s.last_synth || {};
     const rtf = t.audio_ms && t.synth_ms ? (t.audio_ms / t.synth_ms).toFixed(2) : "—";
     document.getElementById("timing-box").innerHTML = t.ts
-      ? `<div class="kv"><span>Voice</span><span>${t.voice} (${t.language})</span></div>
+      ? `<div class="kv"><span>Voice</span><span>${esc(t.voice)} (${esc(t.language)})</span></div>
          <div class="kv"><span>Audio</span><span>${(t.audio_ms/1000).toFixed(1)} s</span></div>
          <div class="kv"><span>Synth</span><span>${(t.synth_ms/1000).toFixed(2)} s</span></div>
          <div class="kv"><span>RTF</span><span>${rtf}×</span></div>`
@@ -84,14 +350,14 @@ function renderEndpoints(s) {
     const off = e.port === "off";
     const isHttp = e.name.indexOf("HTTP") !== -1;
     if (off) {
-      return `<div class="kv"><span>${e.name}</span><span class="muted">disabled</span></div>`;
+      return `<div class="kv"><span>${esc(e.name)}</span><span class="muted">disabled</span></div>`;
     }
     if (isHttp) {
-      return `<div class="kv"><span>${e.name}</span><span class="port">${browserHost}</span></div>`;
+      return `<div class="kv"><span>${esc(e.name)}</span><span class="port">${esc(browserHost)}</span></div>`;
     }
     // Wyoming / timing: in-container port; host mapping may differ.
-    return `<div class="kv"><span>${e.name}</span>
-      <span class="port">container :${e.port}</span></div>`;
+    return `<div class="kv"><span>${esc(e.name)}</span>
+      <span class="port">container :${esc(e.port)}</span></div>`;
   });
   rows.push('<p class="field-help">HTTP shows the address you\'re connected on. ' +
     'Wyoming/timing show the in-container port — if you remapped ports in Docker ' +
@@ -129,7 +395,7 @@ function langBadges(v) {
     const cls = !has ? "miss" : (have[b] ? "ded" : "");
     const t = !has ? "not available for this voice"
       : (have[b] ? "own reference audio" : "shared fallback audio");
-    return `<span class="lng ${cls}" title="${t}">${b}</span>`;
+    return `<span class="lng ${cls}" title="${t}">${esc(b)}</span>`;
   }).join("");
   const star = v.per_language
     ? ` <span class="poly" title="multilingual — a separate reference per language">◆</span>` : "";
@@ -147,18 +413,23 @@ async function refreshVoices() {
   document.getElementById("voice-count").textContent = `(${voices.length})`;
   // populate test-voice + voice list
   const sel = document.getElementById("test-voice");
-  sel.innerHTML = voices.map((v) => `<option>${v.name}</option>`).join("");
+  sel.innerHTML = voices.map((v) => `<option>${esc(v.name)}</option>`).join("");
   document.getElementById("voice-list").innerHTML = voices
     .map((v) => `<div class="voice-item">
-        <span class="name">${v.name}</span>
+        <span class="name">${esc(v.name)}</span>
         ${langBadges(v)}
-        <span class="kind">${v.kind}</span>
-        ${v.kind === "custom" ? `<button data-del="${v.name}">delete</button>` : ""}
+        <span class="kind">${esc(v.kind)}</span>
+        ${v.kind === "custom" ? `<button data-del="${esc(v.name)}">delete</button>` : ""}
       </div>`).join("");
   document.querySelectorAll("[data-del]").forEach((b) => {
     b.onclick = async () => {
+      if (!requireLogin()) return;
       if (!confirm(`Delete voice "${b.dataset.del}"?`)) return;
-      await api("/v1/audio/voices/" + encodeURIComponent(b.dataset.del), { method: "DELETE" });
+      let r;
+      try {
+        r = await api("/v1/audio/voices/" + encodeURIComponent(b.dataset.del), { method: "DELETE" });
+      } catch (e) { return; }
+      if (!r.ok) alert("Not deleted: " + (await errorDetail(r)));
       setTimeout(refreshVoices, 500);
     };
   });
@@ -294,16 +565,29 @@ document.getElementById("generate-btn").onclick = async () => {
   const name = document.getElementById("upload-name").value.trim();
   const keys = Object.keys(SLOTS);
   if (!name || !keys.length) return;
+  if (!requireLogin()) return;
   const status = document.getElementById("upload-status");
+  // Check the password before sending audio: a rejected upload would
+  // otherwise be cut off mid-transfer instead of showing the login.
+  const valid = await checkPassword(TOKEN);
+  if (valid === false) {
+    setLoggedOut();
+    showAuth("The stored password is no longer valid.");
+    return;
+  }
+  if (valid === "limited") {
+    status.textContent = "Too many failed attempts — wait a minute and try again.";
+    return;
+  }
   document.getElementById("generate-btn").disabled = true;
   status.innerHTML = "⏳ Uploading…";
   for (const key of keys) {
     const s = SLOTS[key];
     let r;
     try { r = await uploadOne(s.blob, s.filename, name, key); }
-    catch (e) { status.innerHTML = "❌ Upload failed."; return; }
+    catch (e) { status.innerHTML = "❌ Upload failed."; validateGenerate(); return; }
     if (!r.ok) { let j = {}; try { j = await r.json(); } catch (e) {}
-      status.innerHTML = "❌ Error: " + (j.detail || r.status); return; }
+      status.innerHTML = "❌ Error: " + esc(j.detail || r.status); validateGenerate(); return; }
   }
   // the chosen recording also serves as the untagged fallback for any language
   // the user didn't fill (saved as "<name>.<ext>").
@@ -313,23 +597,23 @@ document.getElementById("generate-btn").onclick = async () => {
   }
   LANG_SLOTS.forEach((s) => clearSlot(s.key));
   FALLBACK_KEY = "";
-  status.innerHTML = `⏳ Embedding "<b>${name}</b>"… ~30 s per language (longer on CPU).`;
+  status.innerHTML = `⏳ Embedding "<b>${esc(name)}</b>"… ~30 s per language (longer on CPU).`;
   let waited = 0;
   const poll = setInterval(async () => {
     waited += 3;
     const now = await currentVoiceNames();
     if (now.includes(name)) {
       clearInterval(poll);
-      status.innerHTML = `✅ Voice "<b>${name}</b>" is ready.`;
+      status.innerHTML = `✅ Voice "<b>${esc(name)}</b>" is ready.`;
       refreshVoices();
       document.getElementById("upload-name").value = "";
     } else if (waited >= 120) {
       clearInterval(poll);
-      status.innerHTML = `⚠️ "<b>${name}</b>" didn't appear after 120 s. Check the server log — ` +
+      status.innerHTML = `⚠️ "<b>${esc(name)}</b>" didn't appear after 120 s. Check the server log — ` +
         `the audio may be too short/noisy, or (for cloning) you may need an HF token in Settings.`;
       refreshVoices();
     } else {
-      status.innerHTML = `⏳ Embedding "<b>${name}</b>"… (${waited}s)`;
+      status.innerHTML = `⏳ Embedding "<b>${esc(name)}</b>"… (${waited}s)`;
     }
   }, 3000);
 };
@@ -359,7 +643,7 @@ document.getElementById("test-btn").onclick = async () => {
 // ── settings ────────────────────────────────────────────────────────────────
 function settingField(key, c) {
   const val = c.value == null ? "" : String(c.value);
-  const ph = c.placeholder ? ` placeholder="${c.placeholder}"` : "";
+  const ph = c.placeholder ? ` placeholder="${esc(c.placeholder)}"` : "";
   // Languages: render as checkboxes from the real installed checkpoints,
   // including the lighter (non-24l) variants for weak hardware.
   if (key === "POCKET_TTS_LANGUAGES") {
@@ -367,16 +651,16 @@ function settingField(key, c) {
     const cps = (CHECKPOINTS && CHECKPOINTS.length)
       ? CHECKPOINTS
       : (c.options || sel).map((o) => ({ checkpoint: o, bcp47: o.slice(0, 2), quality: "" }));
-    return `<div class="lang-grid" data-key="${key}">` +
-      cps.map((cp) => `<label class="lang-opt" title="${cp.quality}">
-        <input type="checkbox" value="${cp.checkpoint}" data-bcp="${cp.bcp47}"
+    return `<div class="lang-grid" data-key="${esc(key)}">` +
+      cps.map((cp) => `<label class="lang-opt" title="${esc(cp.quality)}">
+        <input type="checkbox" value="${esc(cp.checkpoint)}" data-bcp="${esc(cp.bcp47)}"
           ${sel.includes(cp.checkpoint) ? "checked" : ""} />
-        <span>${cp.checkpoint}</span><small>${cp.bcp47} · ${cp.quality}</small>
+        <span>${esc(cp.checkpoint)}</span><small>${esc(cp.bcp47)} · ${esc(cp.quality)}</small>
       </label>`).join("") + `</div>`;
   }
   if (c.type === "bool") {
     const on = ["1", "true", "yes", ""].includes(val.toLowerCase()) && val !== "0" && val.toLowerCase() !== "false";
-    return `<select data-key="${key}">
+    return `<select data-key="${esc(key)}">
       <option value="true" ${on ? "selected" : ""}>true</option>
       <option value="false" ${!on ? "selected" : ""}>false</option></select>`;
   }
@@ -385,26 +669,26 @@ function settingField(key, c) {
     // Without this the select silently falls back to the first option and
     // the next save would overwrite the real value with it.
     const opts = c.options.includes(val) ? c.options : [...c.options, val];
-    return `<select data-key="${key}">` +
-      opts.map((o) => `<option ${o === val ? "selected" : ""}>${o}</option>`).join("") +
+    return `<select data-key="${esc(key)}">` +
+      opts.map((o) => `<option ${o === val ? "selected" : ""}>${esc(o)}</option>`).join("") +
       `</select>`;
   }
   if (c.type === "voice-select") {
     const opts = VOICE_NAMES.length ? VOICE_NAMES : [val].filter(Boolean);
-    return `<select data-key="${key}">` +
-      opts.map((o) => `<option ${o === val ? "selected" : ""}>${o}</option>`).join("") +
+    return `<select data-key="${esc(key)}">` +
+      opts.map((o) => `<option ${o === val ? "selected" : ""}>${esc(o)}</option>`).join("") +
       `</select>`;
   }
   if (c.type === "number") {
-    return `<input type="number" data-key="${key}" value="${val}"${ph} />`;
+    return `<input type="number" data-key="${esc(key)}" value="${esc(val)}"${ph} />`;
   }
   // text — with a datalist of suggestions if options provided
   if (c.options && c.options.length) {
     const listId = "dl-" + key;
-    return `<input data-key="${key}" list="${listId}" value="${val}"${ph} />
-      <datalist id="${listId}">${c.options.map((o) => `<option value="${o}">`).join("")}</datalist>`;
+    return `<input data-key="${esc(key)}" list="${esc(listId)}" value="${esc(val)}"${ph} />
+      <datalist id="${esc(listId)}">${c.options.map((o) => `<option value="${esc(o)}">`).join("")}</datalist>`;
   }
-  return `<input data-key="${key}" value="${val}"${ph} />`;
+  return `<input data-key="${esc(key)}" value="${esc(val)}"${ph} />`;
 }
 
 async function refreshSettings() {
@@ -421,7 +705,7 @@ async function refreshSettings() {
     if (key === "HF_TOKEN") return; // handled in its own card
     const c = cfg[key];
     const badge = c.restart_required ? '<span class="badge">restart</span>' : "";
-    let help = c.help || "";
+    let help = esc(c.help || "");
     if (key === "POCKET_TTS_LANGUAGES") {
       help += ' Pick one checkpoint per language. <code>_24l</code> = ' +
         'higher quality (24-layer, slower); the plain name (e.g. ' +
@@ -437,7 +721,7 @@ async function refreshSettings() {
     const row = document.createElement("div");
     row.className = "setting-block";
     row.innerHTML = `<div class="setting-row">
-        <label>${key}${badge}</label>
+        <label>${esc(key)}${badge}</label>
         ${settingField(key, c)}
       </div>
       ${help ? `<p class="field-help">${help}</p>` : ""}`;
@@ -462,7 +746,7 @@ async function refreshSettings() {
   if (hfLinks) {
     const links = (cfg.HF_TOKEN && cfg.HF_TOKEN.links) || [];
     hfLinks.innerHTML = links
-      .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label} ↗</a>`)
+      .map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`)
       .join(" · ");
   }
 
@@ -470,7 +754,7 @@ async function refreshSettings() {
   const nl = document.getElementById("norm-lang");
   if (nl) {
     const langs = LOADED_LANGS.length ? LOADED_LANGS : ["de", "en", "fr"];
-    nl.innerHTML = langs.map((l) => `<option>${l}</option>`).join("");
+    nl.innerHTML = langs.map((l) => `<option>${esc(l)}</option>`).join("");
   }
 
   refreshReplacements();
@@ -480,6 +764,7 @@ document.getElementById("settings-save").onclick = () => saveSettings(false);
 document.getElementById("restart-btn").onclick = () => saveSettings(true);
 
 async function saveSettings(restart) {
+  if (!requireLogin()) return;
   const updates = {};
   document.querySelectorAll("#settings-form [data-key]").forEach((el) => {
     const key = el.dataset.key;
@@ -494,12 +779,17 @@ async function saveSettings(restart) {
   });
   const st = document.getElementById("settings-status");
   st.textContent = "Saving…";
-  const r = await api("/api/ui/config", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ updates }),
-  });
-  const j = await r.json();
+  let r;
+  try {
+    r = await api("/api/ui/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ updates }),
+    });
+  } catch (e) { st.textContent = "Not saved."; return; }
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* non-JSON error body */ }
+  if (!r.ok) { st.textContent = "Not saved: " + (j.detail || "error " + r.status); return; }
   const need = j.restart_required_for || [];
   st.textContent = need.length
     ? `Saved. Restart required for: ${need.join(", ")}.`
@@ -523,12 +813,16 @@ document.getElementById("hf-save").onclick = async () => {
   const tok = document.getElementById("hf-token").value.trim();
   const st = document.getElementById("hf-status");
   if (!tok) { st.textContent = "Enter a token first."; return; }
+  if (!requireLogin()) return;
   st.textContent = "Saving…";
-  const r = await api("/api/ui/config", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ updates: { HF_TOKEN: tok } }),
-  });
+  let r;
+  try {
+    r = await api("/api/ui/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ updates: { HF_TOKEN: tok } }),
+    });
+  } catch (e) { st.textContent = "Not saved."; return; }
   st.textContent = r.ok ? "Token saved. Next voice you add will use it." : "Error.";
   document.getElementById("hf-token").value = "";
 };
@@ -587,6 +881,7 @@ async function refreshReplacements() {
 document.getElementById("repl-add").onclick = () => addReplRow("", "");
 document.getElementById("repl-save").onclick = async () => {
   const st = document.getElementById("repl-status");
+  if (!requireLogin()) return;
   const map = {};
   document.querySelectorAll("#repl-rows .repl-row").forEach((row) => {
     const key = row.querySelector(".repl-k").value.trim();
@@ -594,11 +889,14 @@ document.getElementById("repl-save").onclick = async () => {
     if (key) map[key] = val;
   });
   st.textContent = "Saving…";
-  const r = await api("/api/ui/replacements", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ replacements: map }),
-  });
+  let r;
+  try {
+    r = await api("/api/ui/replacements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ replacements: map }),
+    });
+  } catch (e) { st.textContent = "Not saved."; return; }
   if (!r.ok) { st.textContent = "Error " + r.status; return; }
   const j = await r.json();
   st.textContent = `Saved ${j.count} entr${j.count === 1 ? "y" : "ies"} — live, no restart.`;
@@ -607,11 +905,15 @@ document.getElementById("repl-save").onclick = async () => {
 
 // ── init ────────────────────────────────────────────────────────────────────
 async function init() {
+  renderAuth();
   try {
     await refreshStatus();
+    await restoreLogin();
+    // first run: offer "Set password" right away
+    if (!LOGGED_IN && AUTH_MODE === "setup") showAuth("");
     await refreshVoices();
     await refreshSettings();
     setInterval(refreshStatus, 5000);
-  } catch (e) { /* token gate already shown */ }
+  } catch (e) { /* a read failed; the next status poll retries */ }
 }
 init();

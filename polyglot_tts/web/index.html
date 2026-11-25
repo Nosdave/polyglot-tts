@@ -4,12 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Polyglot TTS</title>
-  <link rel="stylesheet" href="/ui/static/style.css?v=082" />
+  <link rel="stylesheet" href="/ui/static/style.css?v=091" />
 </head>
 <body>
   <header>
     <h1>🎙️ Polyglot TTS</h1>
     <span id="version" class="muted"></span>
+    <span id="auth-box">
+      <span id="auth-state" class="muted"></span>
+      <button id="login-btn" type="button">Login</button>
+      <button id="logout-btn" type="button" hidden>Logout</button>
+    </span>
   </header>
 
   <nav id="tabs">
@@ -18,12 +23,70 @@
     <button data-tab="settings">Settings</button>
   </nav>
 
-  <!-- token gate -->
-  <section id="token-gate" hidden>
-    <p>This server requires a UI token.</p>
-    <input id="token-input" type="password" placeholder="UI token" />
-    <button id="token-save">Unlock</button>
-    <p id="token-error" class="error"></p>
+  <!-- password: login / first-run setup. Only management actions need it;
+       viewing and listening do not. Real forms with autocomplete hints so
+       password managers can save and fill the entry (user "admin"). -->
+  <section id="auth-panel" hidden>
+    <form id="login-form" class="auth-form" method="post" hidden>
+      <h3>Login</h3>
+      <p>Changing voices, settings or the dictionary and restarting need the
+        management password. Dashboard, voice list and the test player work
+        without it.</p>
+      <label for="login-user">User</label>
+      <input id="login-user" name="username" type="text" value="admin"
+             autocomplete="username" readonly />
+      <label for="login-password">Password</label>
+      <div class="pw-row">
+        <input id="login-password" name="password" type="password"
+               autocomplete="current-password" required />
+        <button type="button" class="secondary" data-toggle="login-password"
+                aria-pressed="false">Show</button>
+      </div>
+      <p id="login-error" class="error" role="alert"></p>
+      <div class="auth-actions">
+        <button type="submit">Login</button>
+        <button type="button" class="secondary" data-auth-cancel>Cancel</button>
+      </div>
+      <p id="login-hint" class="muted"></p>
+    </form>
+
+    <form id="setup-form" class="auth-form" method="post" hidden>
+      <h3>Set password</h3>
+      <p>This server has no management password yet. Set one now: it protects
+        voice upload and deletion, the settings and the restart. Speaking and
+        viewing stay open.</p>
+      <p id="setup-hint" class="muted"></p>
+      <label for="setup-user">User</label>
+      <input id="setup-user" name="username" type="text" value="admin"
+             autocomplete="username" readonly />
+      <label for="setup-password">New password (at least 10 characters)</label>
+      <div class="pw-row">
+        <input id="setup-password" name="new-password" type="password"
+               autocomplete="new-password" minlength="10" required />
+        <button type="button" class="secondary" data-toggle="setup-password,setup-repeat"
+                aria-pressed="false">Show</button>
+      </div>
+      <label for="setup-repeat">Repeat password</label>
+      <input id="setup-repeat" name="new-password-repeat" type="password"
+             autocomplete="new-password" minlength="10" required />
+      <p id="setup-error" class="error" role="alert"></p>
+      <div class="auth-actions">
+        <button type="submit">Set password</button>
+        <button type="button" class="secondary" data-auth-cancel>Later</button>
+      </div>
+    </form>
+
+    <div id="setup-closed" class="auth-form" hidden>
+      <h3>No password set</h3>
+      <p>This server has no management password, and a password can only be
+        set here during the first minutes after a server start. Restart the
+        server and open this page again — or set
+        <code>POCKET_TTS_UI_TOKEN</code> on the server. Until then voices and
+        settings cannot be changed.</p>
+      <div class="auth-actions">
+        <button type="button" class="secondary" data-auth-cancel>Close</button>
+      </div>
+    </div>
   </section>
 
   <main>
@@ -121,6 +184,38 @@
         <p id="repl-status" class="muted"></p>
       </div>
 
+      <div class="card" id="password-card">
+        <h3>Password</h3>
+        <p id="password-note" class="muted"></p>
+        <form id="change-form" class="auth-form" method="post" hidden>
+          <label for="change-user">User</label>
+          <input id="change-user" name="username" type="text" value="admin"
+                 autocomplete="username" readonly />
+          <label for="change-current">Current password</label>
+          <input id="change-current" name="password" type="password"
+                 autocomplete="current-password" required />
+          <label for="change-new">New password (at least 10 characters)</label>
+          <div class="pw-row">
+            <input id="change-new" name="new-password" type="password"
+                   autocomplete="new-password" minlength="10" required />
+            <button type="button" class="secondary"
+                    data-toggle="change-current,change-new,change-repeat"
+                    aria-pressed="false">Show</button>
+          </div>
+          <label for="change-repeat">Repeat new password</label>
+          <input id="change-repeat" name="new-password-repeat" type="password"
+                 autocomplete="new-password" minlength="10" required />
+          <p id="change-status" class="muted" role="status"></p>
+          <div class="auth-actions">
+            <button type="submit">Change password</button>
+          </div>
+        </form>
+        <div class="auth-actions">
+          <button id="settings-login-btn" type="button">Login</button>
+          <button id="settings-logout-btn" type="button" hidden>Logout</button>
+        </div>
+      </div>
+
       <div class="card">
         <h3>HuggingFace token</h3>
         <p class="muted">Only needed for <strong>voice cloning</strong> (the gated
@@ -128,7 +223,7 @@
           the next voice you add uses it — no restart needed.</p>
         <p id="hf-links" class="hf-links"></p>
         <div class="row">
-          <input id="hf-token" type="password" placeholder="hf_…" />
+          <input id="hf-token" type="password" placeholder="hf_…" autocomplete="off" />
           <button id="hf-save">Save token</button>
         </div>
         <p id="hf-status" class="muted"></p>
@@ -136,6 +231,6 @@
     </section>
   </main>
 
-  <script src="/ui/static/app.js?v=083"></script>
+  <script src="/ui/static/app.js?v=091"></script>
 </body>
 </html>

@@ -5,9 +5,13 @@ Serves a static single-page UI at `/ui` and a small `/api/ui/*` surface
 the page talks to. Reuses the existing /v1/audio/* endpoints for voice
 list/upload/delete and test-synthesis.
 
-Auth: if POCKET_TTS_UI_TOKEN is set, the UI page and all /api/ui/* calls
-require it (sent as `X-UI-Token` header or `?token=` query). When unset,
-the UI is open (LAN-only, matching the rest of the server's default).
+Auth: the page, the status and the read-only GETs are open, so the dashboard
+and the test player work without logging in. Every call that changes state
+(settings, pronunciation dictionary, restart — and voice upload/delete in
+http_server) needs the management password, see auth.py. The page has a
+login that keeps the password in the browser and sends it as a Bearer header,
+a first-run "set password" form (POST /api/ui/setup, only while no password
+exists and only for a few minutes after start) and a "change password" form.
 
 Restart: POST /api/ui/restart exits the process; with a Docker restart
 policy (unless-stopped / always) the container comes back and re-reads the
@@ -16,18 +20,20 @@ settings file. Documented in docs/WEB_UI.md.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import threading
 import time
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from . import __version__
-from . import config_store
+from . import auth, config_store
 from .core import LANGUAGE_TO_BCP47, PolyglotCore
 from .timing_server import get_timing
 
@@ -37,18 +43,58 @@ _WEB_DIR = Path(__file__).parent / "web"
 _START_TIME = time.time()
 
 
-def _ui_token() -> str | None:
-    tok = os.environ.get("POCKET_TTS_UI_TOKEN", "").strip()
-    return tok or None
+# Headers for the UI page. The page keeps the management password in the browser,
+# so script injection must not be able to run there: only same-origin scripts,
+# no inline handlers. no-referrer keeps a legacy `?token=` URL out of the
+# Referer header of outgoing links.
+_UI_PAGE_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; "
+        "object-src 'none'; base-uri 'none'; form-action 'none'; "
+        "frame-ancestors 'none'"
+    ),
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "no-cache",
+}
+
+# Dependency for every state-changing route below.
+_MANAGEMENT = [Depends(auth.require_token)]
 
 
-def _check_auth(request: Request) -> None:
-    expected = _ui_token()
-    if not expected:
-        return  # auth disabled
-    provided = request.headers.get("X-UI-Token") or request.query_params.get("token")
-    if provided != expected:
-        raise HTTPException(401, "Invalid or missing UI token")
+class _UIStaticFiles(StaticFiles):
+    """Static assets with the same protective headers as the page itself
+    (index.html is reachable under /ui/static/ too)."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers.update(_UI_PAGE_HEADERS)
+        return response
+
+
+_MAX_AUTH_BODY_BYTES = 4096
+
+
+async def _read_small_json(request: Request) -> dict:
+    """Body of the password forms. /api/ui/setup is reachable without
+    credentials, so the body is read with a hard size limit — and only as
+    `application/json`: a page on another site cannot send that content type
+    without the browser asking this server first (no cross-site form post)."""
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, "Content-Type must be application/json")
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > _MAX_AUTH_BODY_BYTES:
+            raise HTTPException(413, "Request body too large")
+    try:
+        data = json.loads(body)
+    except ValueError as e:
+        raise HTTPException(400, "Body must be JSON") from e
+    if not isinstance(data, dict):
+        raise HTTPException(400, "Body must be a JSON object")
+    return data
 
 
 def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
@@ -56,19 +102,51 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
 
     # Static assets (css/js) under /ui/static
     if _WEB_DIR.is_dir():
-        app.mount("/ui/static", StaticFiles(directory=str(_WEB_DIR)), name="ui-static")
+        app.mount("/ui/static", _UIStaticFiles(directory=str(_WEB_DIR)), name="ui-static")
 
     @app.get("/ui")
-    async def ui_index(request: Request):
-        _check_auth(request)
+    async def ui_index():
         index = _WEB_DIR / "index.html"
         if not index.is_file():
             raise HTTPException(404, "UI not bundled in this image")
-        return FileResponse(str(index))
+        return FileResponse(str(index), headers=_UI_PAGE_HEADERS)
+
+    @app.get("/api/ui/session", dependencies=_MANAGEMENT)
+    async def ui_session():
+        """Lets the page check a password: 200 if valid, 401 otherwise
+        (429 after too many failed attempts)."""
+        return {"authenticated": True}
+
+    @app.post("/api/ui/setup")
+    async def ui_setup(request: Request):
+        """First-run setup: set the management password from the browser.
+
+        Reachable without credentials by design — and therefore only while
+        no password exists (and POCKET_TTS_UI_TOKEN is unset) and only during
+        the setup window after start. auth.set_initial_password enforces it.
+        """
+        body = await _read_small_json(request)
+        try:
+            await asyncio.to_thread(
+                auth.set_initial_password, body.get("password"), auth.client_host(request))
+        except auth.AuthError as e:
+            raise HTTPException(e.status, e.detail) from e
+        return {"authenticated": True}
+
+    @app.post("/api/ui/password", dependencies=_MANAGEMENT)
+    async def ui_change_password(request: Request):
+        """Change the stored password (logged in + current password)."""
+        body = await _read_small_json(request)
+        try:
+            await asyncio.to_thread(
+                auth.change_password, body.get("current_password"),
+                body.get("new_password"), auth.client_host(request))
+        except auth.AuthError as e:
+            raise HTTPException(e.status, e.detail) from e
+        return {"changed": True}
 
     @app.get("/api/ui/status")
-    async def ui_status(request: Request):
-        _check_auth(request)
+    async def ui_status():
         t = get_timing()
 
         def _port(name: str, default: str) -> str:
@@ -95,13 +173,18 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
             ],
             "default_voice": core.default_voice,
             "voice_count": len(core.voice_names()),
-            "auth_enabled": _ui_token() is not None,
+            # Management calls always need the password. auth_mode tells the
+            # page which form to offer: "setup" (set a password now), "password"
+            # / "env" / "memory" (log in), "closed" (no password, setup over).
+            "auth_enabled": True,
+            "auth_mode": auth.mode(),
+            "setup_seconds_left": auth.setup_seconds_left(),
+            "min_password_length": auth.MIN_PASSWORD_CHARS,
             "last_synth": t,
         }
 
     @app.get("/api/ui/config")
-    async def ui_get_config(request: Request):
-        _check_auth(request)
+    async def ui_get_config():
         from .core import available_checkpoints
         return {
             "config": config_store.effective_config(),
@@ -111,13 +194,21 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
             "checkpoints": available_checkpoints(),
         }
 
-    @app.post("/api/ui/config")
+    @app.post("/api/ui/config", dependencies=_MANAGEMENT)
     async def ui_set_config(request: Request):
-        _check_auth(request)
-        body = await request.json()
-        updates = body.get("updates", {})
+        try:
+            body = await request.json()
+        except ValueError as e:
+            raise HTTPException(400, "Body must be JSON") from e
+        updates = body.get("updates", {}) if isinstance(body, dict) else None
         if not isinstance(updates, dict):
             raise HTTPException(400, "updates must be an object")
+        # Languages and the default voice end up as a file name / voice source
+        # inside pocket-tts — only known names are accepted (no paths, no URLs).
+        try:
+            updates = config_store.validate_updates(updates, core.voice_names())
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
         # If the default voice changed live, reflect it on core immediately.
         new_default = updates.get("POCKET_TTS_VOICE")
         try:
@@ -155,15 +246,16 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
         }
 
     @app.get("/api/ui/replacements")
-    async def ui_get_replacements(request: Request):
-        _check_auth(request)
+    async def ui_get_replacements():
         return {"replacements": config_store.read_replacements()}
 
-    @app.post("/api/ui/replacements")
+    @app.post("/api/ui/replacements", dependencies=_MANAGEMENT)
     async def ui_set_replacements(request: Request):
-        _check_auth(request)
-        body = await request.json()
-        repl = body.get("replacements", {})
+        try:
+            body = await request.json()
+        except ValueError as e:
+            raise HTTPException(400, "Body must be JSON") from e
+        repl = body.get("replacements", {}) if isinstance(body, dict) else None
         if not isinstance(repl, dict):
             raise HTTPException(400, "replacements must be an object {token: spoken}")
         try:
@@ -180,9 +272,8 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
         set_replacements(clean)
         return {"saved": True, "count": len(clean), "replacements": clean}
 
-    @app.post("/api/ui/restart")
-    async def ui_restart(request: Request):
-        _check_auth(request)
+    @app.post("/api/ui/restart", dependencies=_MANAGEMENT)
+    async def ui_restart():
         _LOGGER.warning("Restart requested via web UI — re-execing the process "
                         "(re-reads settings; no Docker restart policy needed).")
 
@@ -206,5 +297,4 @@ def mount_ui(app: FastAPI, core: PolyglotCore) -> None:
                      "(model reload + warmup). No Docker restart policy required."}
         )
 
-    _LOGGER.info("Web UI mounted at /ui (auth=%s)",
-                 "on" if _ui_token() else "off")
+    _LOGGER.info("Web UI mounted at /ui (management calls need the password)")
